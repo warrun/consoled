@@ -174,6 +174,11 @@ private struct HostConnectionEditor: View {
             SettingsField(label: "Port", text: $port)
         }
         .onSubmit { commit() }
+        .onDisappear { commit() }
+        .onChange(of: displayName) { _, _ in commit() }
+        .onChange(of: hostname) { _, _ in commit() }
+        .onChange(of: username) { _, _ in commit() }
+        .onChange(of: port) { _, _ in commit() }
         .onChange(of: host.id) { _, _ in syncFromHost() }
         .onChange(of: host.displayName) { _, _ in syncFromHost() }
         .onChange(of: host.hostname) { _, _ in syncFromHost() }
@@ -195,7 +200,6 @@ private struct HostConnectionEditor: View {
         let trimmedHostname = hostname.trimmingCharacters(in: .whitespaces)
         guard !trimmedName.isEmpty else { return }
         guard !trimmedHostname.isEmpty else { return }
-        if host.source == .imported && trimmedHostname == host.hostAlias { return }
         let portValue = Int(port.trimmingCharacters(in: .whitespaces)) ?? 22
         onSave(trimmedName, trimmedHostname, username.trimmingCharacters(in: .whitespaces), portValue)
     }

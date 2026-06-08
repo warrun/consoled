@@ -44,6 +44,24 @@ final class ProfileStore {
         }
     }
 
+    private func decodeStore(at url: URL) -> ProfileStoreData? {
+        guard fileManager.fileExists(atPath: url.path()),
+              let data = try? Data(contentsOf: url) else {
+            return nil
+        }
+        return try? decoder.decode(ProfileStoreData.self, from: data)
+    }
+
+    private func isEffectivelyEmpty(_ data: ProfileStoreData) -> Bool {
+        data.manualProfiles.isEmpty
+            && data.portForwardOverrides.isEmpty
+            && data.hostConnectionOverrides.isEmpty
+            && data.terminalProfileOverrides.isEmpty
+            && data.hiddenImportedHostAliases.isEmpty
+            && data.sshConfigBookmark == nil
+            && !data.sshConfigImportEnabled
+    }
+
     func save(_ data: ProfileStoreData) {
         do {
             let encoded = try encoder.encode(data)
@@ -55,19 +73,32 @@ final class ProfileStore {
 
     /// One-time migration from the pre-rename Termite Application Support folder.
     private func migrateLegacyStoreIfNeeded() {
-        guard !fileManager.fileExists(atPath: storageURL.path()) else { return }
-
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let legacyURL = appSupport
             .appending(path: Self.legacyAppSupportFolderName, directoryHint: .isDirectory)
             .appending(path: "profiles.json")
 
-        guard fileManager.fileExists(atPath: legacyURL.path()) else { return }
+        guard let legacyData = decodeStore(at: legacyURL),
+              !isEffectivelyEmpty(legacyData) else {
+            return
+        }
+
+        let shouldCopy: Bool
+        if fileManager.fileExists(atPath: storageURL.path()) {
+            shouldCopy = (decodeStore(at: storageURL).map(isEffectivelyEmpty) ?? true)
+        } else {
+            shouldCopy = true
+        }
+
+        guard shouldCopy else { return }
 
         try? fileManager.createDirectory(
             at: storageURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
+        if fileManager.fileExists(atPath: storageURL.path()) {
+            try? fileManager.removeItem(at: storageURL)
+        }
         try? fileManager.copyItem(at: legacyURL, to: storageURL)
         Self.logger.info("Migrated profiles from legacy Termite Application Support folder")
     }
