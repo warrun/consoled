@@ -4,18 +4,18 @@ import SwiftUI
 /// A focusable control that records a key combination. Click it, press the desired
 /// combo, and it commits the binding. Modifier-less combos are rejected with a hint.
 struct ShortcutRecorderField: NSViewRepresentable {
-    let direction: SessionMoveDirection
+    let action: ShortcutAction
     let shortcutSettings: ShortcutSettings
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(direction: direction, settings: shortcutSettings)
+        Coordinator(action: action, settings: shortcutSettings)
     }
 
     func makeNSView(context: Context) -> RecorderView {
         let view = RecorderView()
-        view.binding = shortcutSettings.binding(for: direction)
+        view.binding = shortcutSettings.binding(for: action)
         view.onCapture = { newBinding in
-            context.coordinator.settings.setBinding(newBinding, for: context.coordinator.direction)
+            context.coordinator.settings.setBinding(newBinding, for: context.coordinator.action)
         }
         view.onRecordingChange = { recording in
             context.coordinator.settings.isRecording = recording
@@ -26,16 +26,16 @@ struct ShortcutRecorderField: NSViewRepresentable {
     func updateNSView(_ nsView: RecorderView, context: Context) {
         // Reflect external changes (e.g. Reset to Defaults) while not actively recording.
         if !shortcutSettings.isRecording {
-            nsView.binding = shortcutSettings.binding(for: direction)
+            nsView.binding = shortcutSettings.binding(for: action)
             nsView.needsDisplay = true
         }
     }
 
     final class Coordinator {
-        let direction: SessionMoveDirection
+        let action: ShortcutAction
         let settings: ShortcutSettings
-        init(direction: SessionMoveDirection, settings: ShortcutSettings) {
-            self.direction = direction
+        init(action: ShortcutAction, settings: ShortcutSettings) {
+            self.action = action
             self.settings = settings
         }
     }

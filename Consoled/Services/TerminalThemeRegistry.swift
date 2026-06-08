@@ -33,7 +33,7 @@ final class TerminalThemeRegistry {
         BuiltInTerminalThemes.all.map { builtIn in
             let definition = builtInThemeOverrides[builtIn.id] ?? builtIn
             return TerminalTheme(definition: definition)
-        } + customThemes.map(TerminalTheme.init)
+        } + customThemes.map { TerminalTheme(definition: $0) }
     }
 
     func theme(id: String) -> TerminalTheme? {

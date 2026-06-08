@@ -12,6 +12,9 @@ final class SessionManager {
     var showConfigAccessSheet = false
     var showConfigConsentSheet = false
     var defaultTerminalTheme: TerminalTheme
+    /// Runtime caches synced from settings at launch / on change (mirrors `defaultTerminalTheme`).
+    private(set) var defaultFontSize: CGFloat = TerminalTheme.defaultFontSize
+    private var terminalOpacity: CGFloat = TerminalTheme.defaultBackgroundOpacity
 
     let themeRegistry: TerminalThemeRegistry
 
@@ -136,13 +139,18 @@ final class SessionManager {
         sessions.last(where: { $0.profile?.id == host.id })
     }
 
-    func connect(to host: SSHHostProfile, themeID: String? = nil) {
+    func connect(to host: SSHHostProfile, themeID: String? = nil, fontSize: CGFloat? = nil) {
         ConnectTiming.markConnect()
 
         let profile = hostCatalog.first(where: { $0.id == host.id }) ?? host
         selectedHostID = profile.id
-        let theme = resolvedTheme(for: profile, explicitThemeID: themeID)
-        let session = TerminalSession(profile: profile, terminalTheme: theme)
+        let baseTheme = resolvedTheme(for: profile, explicitThemeID: themeID)
+        let effectiveFont = fontSize ?? profile.fontSize ?? defaultFontSize
+        let session = TerminalSession(
+            profile: profile,
+            terminalTheme: resolvedSessionTheme(base: baseTheme, fontSize: effectiveFont),
+            assignedFontSize: fontSize
+        )
         sessions.append(session)
         selectedSessionID = session.id
 
@@ -154,15 +162,21 @@ final class SessionManager {
         connect(to: host)
     }
 
-    func connectLocal(themeID: String? = nil) {
+    func connectLocal(themeID: String? = nil, fontSize: CGFloat? = nil) {
         ConnectTiming.markConnect()
-        let theme: TerminalTheme
+        let baseTheme: TerminalTheme
         if let themeID, let resolved = themeRegistry.theme(id: themeID) {
-            theme = resolved
+            baseTheme = resolved
         } else {
-            theme = defaultTerminalTheme
+            baseTheme = defaultTerminalTheme
         }
-        let session = TerminalSession(profile: nil, terminalTheme: theme, assignedThemeID: themeID)
+        let effectiveFont = fontSize ?? defaultFontSize
+        let session = TerminalSession(
+            profile: nil,
+            terminalTheme: resolvedSessionTheme(base: baseTheme, fontSize: effectiveFont),
+            assignedThemeID: themeID,
+            assignedFontSize: fontSize
+        )
         sessions.append(session)
         selectedSessionID = session.id
         ConnectTiming.mark("local session added to manager")
@@ -254,7 +268,10 @@ final class SessionManager {
         let updated = hostCatalog[index]
         for sessionIndex in sessions.indices where sessions[sessionIndex].profile?.id == host.id {
             sessions[sessionIndex].profile = updated
-            sessions[sessionIndex].terminalTheme = theme
+            sessions[sessionIndex].terminalTheme = resolvedSessionTheme(
+                base: theme,
+                fontSize: effectiveFontSize(for: sessions[sessionIndex])
+            )
         }
         persistProfiles()
     }
@@ -269,7 +286,10 @@ final class SessionManager {
             let updated = hostCatalog[index]
             for sessionIndex in sessions.indices where sessions[sessionIndex].profile?.id == updated.id {
                 sessions[sessionIndex].profile = updated
-                sessions[sessionIndex].terminalTheme = defaultTerminalTheme
+                sessions[sessionIndex].terminalTheme = resolvedSessionTheme(
+                    base: defaultTerminalTheme,
+                    fontSize: effectiveFontSize(for: sessions[sessionIndex])
+                )
             }
             changed = true
         }
@@ -282,7 +302,10 @@ final class SessionManager {
     func setSessionTheme(_ theme: TerminalTheme, forSession id: UUID) {
         guard let index = sessions.firstIndex(where: { $0.id == id }) else { return }
         sessions[index].assignedThemeID = theme.id
-        sessions[index].terminalTheme = theme
+        sessions[index].terminalTheme = resolvedSessionTheme(
+            base: theme,
+            fontSize: effectiveFontSize(for: sessions[index])
+        )
     }
 
     func applyDefaultTheme(id: String) {
@@ -292,7 +315,10 @@ final class SessionManager {
             // Leave sessions that have an explicit theme (host- or session-assigned).
             guard sessions[index].profile?.themeID == nil,
                   sessions[index].assignedThemeID == nil else { continue }
-            sessions[index].terminalTheme = theme
+            sessions[index].terminalTheme = resolvedSessionTheme(
+                base: theme,
+                fontSize: effectiveFontSize(for: sessions[index])
+            )
         }
     }
 
@@ -303,9 +329,74 @@ final class SessionManager {
                 ?? sessions[index].assignedThemeID
                 ?? defaultTerminalTheme.id
             if let theme = themeRegistry.theme(id: themeID) {
-                sessions[index].terminalTheme = theme
+                sessions[index].terminalTheme = resolvedSessionTheme(
+                    base: theme,
+                    fontSize: effectiveFontSize(for: sessions[index])
+                )
             }
         }
+    }
+
+    // MARK: - Font size & opacity
+
+    func effectiveFontSize(for session: TerminalSession) -> CGFloat {
+        session.assignedFontSize ?? session.profile?.fontSize ?? defaultFontSize
+    }
+
+    /// Sync the global default font size and re-resolve sessions that follow it
+    /// (no per-session and no per-host override). Mirrors `applyDefaultTheme`.
+    func applyDefaultFontSize(_ size: CGFloat) {
+        defaultFontSize = clampFont(size)
+        for index in sessions.indices {
+            guard sessions[index].assignedFontSize == nil,
+                  sessions[index].profile?.fontSize == nil else { continue }
+            sessions[index].terminalTheme = sessions[index].terminalTheme.withFontSize(defaultFontSize)
+        }
+    }
+
+    /// Set (or clear, with `nil`) a host's font size. Clears any per-session overrides
+    /// on that host's live sessions so the host setting takes effect immediately.
+    func setHostFontSize(_ size: CGFloat?, forHost host: SSHHostProfile) {
+        guard let index = hostCatalog.firstIndex(where: { $0.id == host.id }) else { return }
+        let clamped = size.map(clampFont)
+        hostCatalog[index].fontSize = clamped
+        let updated = hostCatalog[index]
+        let effective = clamped ?? defaultFontSize
+        for sessionIndex in sessions.indices where sessions[sessionIndex].profile?.id == host.id {
+            sessions[sessionIndex].profile = updated
+            sessions[sessionIndex].assignedFontSize = nil
+            sessions[sessionIndex].terminalTheme = sessions[sessionIndex].terminalTheme.withFontSize(effective)
+        }
+        persistProfiles()
+    }
+
+    func setSessionFontSize(_ size: CGFloat, forSession id: UUID) {
+        guard let index = sessions.firstIndex(where: { $0.id == id }) else { return }
+        let clamped = clampFont(size)
+        sessions[index].assignedFontSize = clamped
+        sessions[index].terminalTheme = sessions[index].terminalTheme.withFontSize(clamped)
+    }
+
+    func adjustSelectedSessionFontSize(by delta: CGFloat) {
+        guard let id = selectedSessionID,
+              let session = sessions.first(where: { $0.id == id }) else { return }
+        setSessionFontSize(effectiveFontSize(for: session) + delta, forSession: id)
+    }
+
+    /// Sync the global terminal background opacity onto every live session.
+    func applyTerminalOpacity(_ opacity: CGFloat) {
+        terminalOpacity = opacity
+        for index in sessions.indices {
+            sessions[index].terminalTheme = sessions[index].terminalTheme.withBackgroundOpacity(opacity)
+        }
+    }
+
+    private func resolvedSessionTheme(base: TerminalTheme, fontSize: CGFloat) -> TerminalTheme {
+        base.withFontSize(clampFont(fontSize)).withBackgroundOpacity(terminalOpacity)
+    }
+
+    private func clampFont(_ size: CGFloat) -> CGFloat {
+        min(max(size, TerminalTheme.minFontSize), TerminalTheme.maxFontSize)
     }
 
     func updateHost(_ profile: SSHHostProfile) {
@@ -388,7 +479,8 @@ final class SessionManager {
                 WorkspaceSessionEntry(
                     hostAlias: $0.profile?.hostAlias ?? "",
                     themeID: $0.terminalTheme.id,
-                    isLocal: $0.profile == nil
+                    isLocal: $0.profile == nil,
+                    fontSize: $0.assignedFontSize
                 )
             },
             selectedHostAlias: selectedSession?.profile?.hostAlias
@@ -414,9 +506,9 @@ final class SessionManager {
 
         for entry in snapshot.sessions {
             if entry.isLocal == true {
-                connectLocal(themeID: entry.themeID)
+                connectLocal(themeID: entry.themeID, fontSize: entry.fontSize)
             } else if let host = hostCatalog.first(where: { $0.hostAlias == entry.hostAlias }) {
-                connect(to: host, themeID: entry.themeID)
+                connect(to: host, themeID: entry.themeID, fontSize: entry.fontSize)
             }
         }
 

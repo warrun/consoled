@@ -29,6 +29,8 @@ struct SessionSettingsPanel: View {
                         .padding(.vertical, 8)
                     }
 
+                    hostFontSection(host)
+
                     HostConfigDraftPanel(host: host, manager: manager)
                 } else {
                     ContentUnavailableView(
@@ -65,6 +67,51 @@ struct SessionSettingsPanel: View {
                     }
                 )
             )
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+        }
+
+        SettingsSection(title: "Font Size") {
+            Stepper(
+                "\(Int(manager.effectiveFontSize(for: session))) pt",
+                value: Binding(
+                    get: { manager.effectiveFontSize(for: session) },
+                    set: { manager.setSessionFontSize($0, forSession: session.id) }
+                ),
+                in: TerminalTheme.minFontSize...TerminalTheme.maxFontSize,
+                step: 1
+            )
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+        }
+    }
+
+    @ViewBuilder
+    private func hostFontSection(_ host: SSHHostProfile) -> some View {
+        SettingsSection(title: "Font Size") {
+            VStack(alignment: .leading, spacing: 6) {
+                Stepper(
+                    "\(Int(host.fontSize ?? manager.defaultFontSize)) pt",
+                    value: Binding(
+                        get: { host.fontSize ?? manager.defaultFontSize },
+                        set: { manager.setHostFontSize($0, forHost: host) }
+                    ),
+                    in: TerminalTheme.minFontSize...TerminalTheme.maxFontSize,
+                    step: 1
+                )
+
+                if host.fontSize != nil {
+                    Button("Use default size") {
+                        manager.setHostFontSize(nil, forHost: host)
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                } else {
+                    Text("Following the global default.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
         }

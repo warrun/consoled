@@ -14,23 +14,27 @@ final class ShortcutMonitor {
 
     func start(
         sessionCount: @escaping @MainActor () -> Int,
-        handler: @escaping @MainActor (SessionMoveDirection) -> Void
+        handler: @escaping @MainActor (ShortcutAction) -> Void
     ) {
         guard token == nil else { return }
         let settings = shortcutSettings
         token = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             MainActor.assumeIsolated {
-                // Stand down while recording a new binding or typing in a text field,
-                // and when there's nothing meaningful to reorder.
+                // Stand down while recording a new binding or typing in a text field.
                 if settings.isRecording { return event }
                 if ShortcutMonitor.firstResponderIsTextInput() { return event }
-                guard sessionCount() >= 2 else { return event }
 
                 let mods = ShortcutSettings.maskedModifiers(event.modifierFlags)
-                guard let direction = settings.direction(forKeyCode: event.keyCode, modifiers: mods) else {
+                guard let action = settings.action(forKeyCode: event.keyCode, modifiers: mods) else {
                     return event
                 }
-                handler(direction)
+                // Moves need at least two sessions; font tweaks need at least one.
+                // Don't consume the key if the action can't act.
+                let count = sessionCount()
+                if action.moveDirection != nil, count < 2 { return event }
+                if action.isFont, count < 1 { return event }
+
+                handler(action)
                 return nil
             }
         }

@@ -6,6 +6,8 @@ struct WorkspaceSessionEntry: Codable, Hashable {
     var themeID: String
     /// Optional so snapshots written before local sessions existed still decode.
     var isLocal: Bool?
+    /// Per-session font override (nil = follow host/default). Optional for back-compat.
+    var fontSize: CGFloat?
 }
 
 struct WorkspaceSnapshot: Codable {

@@ -29,6 +29,8 @@ struct SSHHostProfile: Identifiable, Codable, Hashable {
     var port: Int?
     var identityFile: String?
     var themeID: String?
+    /// Per-host terminal font size; `nil` means follow the global default.
+    var fontSize: CGFloat?
 
     init(
         id: UUID = UUID(),
@@ -40,7 +42,8 @@ struct SSHHostProfile: Identifiable, Codable, Hashable {
         username: String? = nil,
         port: Int? = nil,
         identityFile: String? = nil,
-        themeID: String? = nil
+        themeID: String? = nil,
+        fontSize: CGFloat? = nil
     ) {
         self.id = id
         self.displayName = displayName
@@ -52,6 +55,7 @@ struct SSHHostProfile: Identifiable, Codable, Hashable {
         self.port = port
         self.identityFile = identityFile
         self.themeID = themeID
+        self.fontSize = fontSize
     }
 
     var connectableHostname: String? {

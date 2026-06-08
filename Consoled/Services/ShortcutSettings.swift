@@ -32,77 +32,58 @@ struct KeyBinding: Codable, Hashable {
 @Observable
 @MainActor
 final class ShortcutSettings {
-    private static let storageKey = "reorderShortcuts"
+    private static let storageKey = "sessionShortcuts"
 
-    private(set) var moveLeft: KeyBinding
-    private(set) var moveRight: KeyBinding
-    private(set) var moveUp: KeyBinding
-    private(set) var moveDown: KeyBinding
+    private var bindings: [ShortcutAction: KeyBinding]
 
     /// Set while a recorder field is capturing, so the global key monitor stands down.
     var isRecording = false
 
     init() {
         let defaults = Self.defaultBindings()
+        var resolved = defaults
         if let data = UserDefaults.standard.data(forKey: Self.storageKey),
            let decoded = try? JSONDecoder().decode([String: KeyBinding].self, from: data) {
-            moveLeft = decoded["left"] ?? defaults.left
-            moveRight = decoded["right"] ?? defaults.right
-            moveUp = decoded["up"] ?? defaults.up
-            moveDown = decoded["down"] ?? defaults.down
-        } else {
-            moveLeft = defaults.left
-            moveRight = defaults.right
-            moveUp = defaults.up
-            moveDown = defaults.down
+            for action in ShortcutAction.allCases {
+                if let stored = decoded[action.rawValue] {
+                    resolved[action] = stored
+                }
+            }
         }
+        bindings = resolved
     }
 
-    func binding(for direction: SessionMoveDirection) -> KeyBinding {
-        switch direction {
-        case .left: return moveLeft
-        case .right: return moveRight
-        case .up: return moveUp
-        case .down: return moveDown
-        }
+    func binding(for action: ShortcutAction) -> KeyBinding {
+        bindings[action] ?? Self.defaultBindings()[action]!
     }
 
-    func label(for direction: SessionMoveDirection) -> String {
-        binding(for: direction).displayString
+    func label(for action: ShortcutAction) -> String {
+        binding(for: action).displayString
     }
 
     /// Commit a new binding. Rejected (returns false) if it has no modifier, which
     /// would otherwise swallow a bare keystroke from the terminal.
     @discardableResult
-    func setBinding(_ binding: KeyBinding, for direction: SessionMoveDirection) -> Bool {
+    func setBinding(_ binding: KeyBinding, for action: ShortcutAction) -> Bool {
         guard binding.hasModifier else { return false }
-        switch direction {
-        case .left: moveLeft = binding
-        case .right: moveRight = binding
-        case .up: moveUp = binding
-        case .down: moveDown = binding
-        }
+        bindings[action] = binding
         persist()
         return true
     }
 
-    /// Which reorder action, if any, a key event maps to.
-    func direction(forKeyCode keyCode: UInt16, modifiers: UInt) -> SessionMoveDirection? {
-        for direction in [SessionMoveDirection.left, .right, .up, .down] {
-            let candidate = binding(for: direction)
+    /// Which action, if any, a key event maps to.
+    func action(forKeyCode keyCode: UInt16, modifiers: UInt) -> ShortcutAction? {
+        for action in ShortcutAction.allCases {
+            let candidate = binding(for: action)
             if candidate.keyCode == keyCode, candidate.modifiers == modifiers {
-                return direction
+                return action
             }
         }
         return nil
     }
 
     func resetToDefaults() {
-        let defaults = Self.defaultBindings()
-        moveLeft = defaults.left
-        moveRight = defaults.right
-        moveUp = defaults.up
-        moveDown = defaults.down
+        bindings = Self.defaultBindings()
         persist()
     }
 
@@ -113,21 +94,21 @@ final class ShortcutSettings {
     }
 
     private func persist() {
-        let dict = ["left": moveLeft, "right": moveRight, "up": moveUp, "down": moveDown]
+        let dict = Dictionary(uniqueKeysWithValues: bindings.map { ($0.key.rawValue, $0.value) })
         if let data = try? JSONEncoder().encode(dict) {
             UserDefaults.standard.set(data, forKey: Self.storageKey)
         }
     }
 
-    private static func defaultBindings() -> (
-        left: KeyBinding, right: KeyBinding, up: KeyBinding, down: KeyBinding
-    ) {
+    private static func defaultBindings() -> [ShortcutAction: KeyBinding] {
         let mods = maskedModifiers([.command, .shift])
-        return (
-            KeyBinding(keyCode: 123, modifiers: mods, keyLabel: "←"),
-            KeyBinding(keyCode: 124, modifiers: mods, keyLabel: "→"),
-            KeyBinding(keyCode: 126, modifiers: mods, keyLabel: "↑"),
-            KeyBinding(keyCode: 125, modifiers: mods, keyLabel: "↓")
-        )
+        return [
+            .moveLeft: KeyBinding(keyCode: 123, modifiers: mods, keyLabel: "←"),
+            .moveRight: KeyBinding(keyCode: 124, modifiers: mods, keyLabel: "→"),
+            .moveUp: KeyBinding(keyCode: 126, modifiers: mods, keyLabel: "↑"),
+            .moveDown: KeyBinding(keyCode: 125, modifiers: mods, keyLabel: "↓"),
+            .fontIncrease: KeyBinding(keyCode: 24, modifiers: mods, keyLabel: "+"),
+            .fontDecrease: KeyBinding(keyCode: 27, modifiers: mods, keyLabel: "−"),
+        ]
     }
 }

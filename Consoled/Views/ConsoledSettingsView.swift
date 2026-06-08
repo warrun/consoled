@@ -106,14 +106,37 @@ struct ConsoledSettingsView: View {
             }
 
             Section {
-                shortcutRow("Move Left", direction: .left)
-                shortcutRow("Move Right", direction: .right)
-                shortcutRow("Move Up", direction: .up)
-                shortcutRow("Move Down", direction: .down)
+                Stepper(
+                    "Default font size: \(Int(terminalSettings.defaultFontSize)) pt",
+                    value: $terminalSettings.defaultFontSize,
+                    in: TerminalTheme.minFontSize...TerminalTheme.maxFontSize,
+                    step: 1
+                )
+                Text("New sessions and hosts without their own size use this. Set a per-host size in the session settings panel, or ⌘⇧+ / ⌘⇧− to resize the focused session.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                opacitySlider(
+                    "Terminal opacity",
+                    value: $appSettings.terminalOpacity,
+                    range: AppSettings.minTerminalOpacity...1.0
+                )
+            } header: {
+                Text("Appearance")
+            }
+
+            Section {
+                shortcutRow(.moveLeft)
+                shortcutRow(.moveRight)
+                shortcutRow(.moveUp)
+                shortcutRow(.moveDown)
+                shortcutRow(.fontIncrease)
+                shortcutRow(.fontDecrease)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("**Tabs view:** Left and Right move the selected tab one position. Up and Down are unused.")
-                    Text("**Tiled view:** all four directions swap the selected tile with its neighbour in that direction.")
+                    Text("**Tabs view:** Move Left/Right shift the selected tab one position; Up/Down are unused.")
+                    Text("**Tiled view:** all four directions swap the selected tile with its neighbour.")
+                    Text("**Font Size +/−** resize the focused tab or tile.")
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -122,7 +145,7 @@ struct ConsoledSettingsView: View {
                     showResetShortcutsConfirm = true
                 }
             } header: {
-                Text("Reorder Sessions")
+                Text("Keyboard Shortcuts")
             } footer: {
                 Text("Click a shortcut, then press the keys you want. At least one modifier (⌘ ⌥ ⌃ ⇧) is required.")
                     .font(.caption)
@@ -133,12 +156,27 @@ struct ConsoledSettingsView: View {
         .padding()
     }
 
-    private func shortcutRow(_ label: String, direction: SessionMoveDirection) -> some View {
+    private func shortcutRow(_ action: ShortcutAction) -> some View {
+        HStack {
+            Text(action.label)
+            Spacer()
+            ShortcutRecorderField(action: action, shortcutSettings: shortcutSettings)
+                .frame(width: 150, height: 24)
+        }
+    }
+
+    private func opacitySlider(
+        _ label: String,
+        value: Binding<Double>,
+        range: ClosedRange<Double>
+    ) -> some View {
         HStack {
             Text(label)
-            Spacer()
-            ShortcutRecorderField(direction: direction, shortcutSettings: shortcutSettings)
-                .frame(width: 150, height: 24)
+            Slider(value: value, in: range)
+            Text("\(Int(value.wrappedValue * 100))%")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 40, alignment: .trailing)
         }
     }
 

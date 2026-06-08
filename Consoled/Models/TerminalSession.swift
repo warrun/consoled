@@ -8,17 +8,22 @@ struct TerminalSession: Identifiable, Hashable {
     /// Explicit per-session theme override. Used by local sessions (which have no
     /// host to carry a `themeID`); `nil` means follow the default theme.
     var assignedThemeID: String?
+    /// Explicit per-session font size (from ⌘⇧± or a local session). `nil` means
+    /// follow the host's size, or the global default.
+    var assignedFontSize: CGFloat?
 
     init(
         id: UUID = UUID(),
         profile: SSHHostProfile? = nil,
         terminalTheme: TerminalTheme,
-        assignedThemeID: String? = nil
+        assignedThemeID: String? = nil,
+        assignedFontSize: CGFloat? = nil
     ) {
         self.id = id
         self.profile = profile
         self.terminalTheme = terminalTheme
         self.assignedThemeID = assignedThemeID
+        self.assignedFontSize = assignedFontSize
     }
 
     var isLocal: Bool { profile == nil }

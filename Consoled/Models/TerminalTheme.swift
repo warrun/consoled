@@ -3,6 +3,8 @@ import SwiftTerm
 
 struct TerminalTheme: Identifiable, Hashable {
     let definition: TerminalThemeDefinition
+    let fontSize: CGFloat
+    let backgroundOpacity: CGFloat
 
     var id: String { definition.id }
     var displayName: String { definition.displayName }
@@ -12,15 +14,31 @@ struct TerminalTheme: Identifiable, Hashable {
     /// Inset between the rounded panel edge and the character grid.
     static let textPadding: CGFloat = 10
     static let panelCornerRadius: CGFloat = 8
-    static let backgroundAlpha: CGFloat = 0.77
-    static let fontSize: CGFloat = 12
+    static let defaultBackgroundOpacity: CGFloat = 0.77
+    static let defaultFontSize: CGFloat = 12
+    static let minFontSize: CGFloat = 8
+    static let maxFontSize: CGFloat = 40
 
-    init(definition: TerminalThemeDefinition) {
+    init(
+        definition: TerminalThemeDefinition,
+        fontSize: CGFloat = TerminalTheme.defaultFontSize,
+        backgroundOpacity: CGFloat = TerminalTheme.defaultBackgroundOpacity
+    ) {
         self.definition = definition
+        self.fontSize = fontSize
+        self.backgroundOpacity = backgroundOpacity
+    }
+
+    func withFontSize(_ size: CGFloat) -> TerminalTheme {
+        TerminalTheme(definition: definition, fontSize: size, backgroundOpacity: backgroundOpacity)
+    }
+
+    func withBackgroundOpacity(_ opacity: CGFloat) -> TerminalTheme {
+        TerminalTheme(definition: definition, fontSize: fontSize, backgroundOpacity: opacity)
     }
 
     var background: NSColor {
-        NSColor.black.withAlphaComponent(Self.backgroundAlpha)
+        NSColor.black.withAlphaComponent(backgroundOpacity)
     }
 
     var selection: NSColor {
@@ -30,11 +48,11 @@ struct TerminalTheme: Identifiable, Hashable {
     var font: NSFont {
         let candidates = ["Andale Mono", "Menlo", "Monaco"]
         for name in candidates {
-            if let font = NSFont(name: name, size: Self.fontSize) {
+            if let font = NSFont(name: name, size: fontSize) {
                 return font
             }
         }
-        return NSFont.monospacedSystemFont(ofSize: Self.fontSize, weight: .regular)
+        return NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
     }
 
     var ansiPalette: [Color] {

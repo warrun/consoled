@@ -87,12 +87,20 @@ struct RootView: View {
             manager.closeSelectedSession()
         }
         .onAppear {
+            manager.applyTerminalOpacity(CGFloat(appSettings.terminalOpacity))
+            manager.applyDefaultFontSize(terminalSettings.defaultFontSize)
             manager.applyDefaultTheme(id: terminalSettings.defaultThemeID)
             manager.restoreWorkspaceIfNeeded(
                 enabled: appSettings.restoreWorkspaceOnLaunch,
                 workspaceSettings: workspaceSettings
             )
             startShortcutMonitor()
+        }
+        .onChange(of: terminalSettings.defaultFontSize) { _, size in
+            manager.applyDefaultFontSize(size)
+        }
+        .onChange(of: appSettings.terminalOpacity) { _, opacity in
+            manager.applyTerminalOpacity(CGFloat(opacity))
         }
         .onDisappear {
             shortcutMonitor?.stop()
@@ -129,12 +137,18 @@ struct RootView: View {
         let monitor = ShortcutMonitor(shortcutSettings: shortcutSettings)
         monitor.start(
             sessionCount: { manager.sessions.count },
-            handler: { direction in
-                manager.moveSelectedSession(
-                    direction,
-                    layoutMode: workspaceSettings.layoutMode,
-                    isPortrait: workspaceSettings.tileIsPortrait(for: lastKnownWindowSize)
-                )
+            handler: { action in
+                if let direction = action.moveDirection {
+                    manager.moveSelectedSession(
+                        direction,
+                        layoutMode: workspaceSettings.layoutMode,
+                        isPortrait: workspaceSettings.tileIsPortrait(for: lastKnownWindowSize)
+                    )
+                } else if action == .fontIncrease {
+                    manager.adjustSelectedSessionFontSize(by: 1)
+                } else if action == .fontDecrease {
+                    manager.adjustSelectedSessionFontSize(by: -1)
+                }
             }
         )
         shortcutMonitor = monitor
