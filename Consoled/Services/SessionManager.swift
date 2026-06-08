@@ -204,6 +204,39 @@ final class SessionManager {
         }
     }
 
+    /// Move the selected session within the workspace. In tabs, left/right shift it one
+    /// position (clamped); in tiles, the arrows swap it with its directional neighbour.
+    /// Selection rides with the session, so focus follows the moved tile/tab.
+    func moveSelectedSession(
+        _ direction: SessionMoveDirection,
+        layoutMode: SessionLayoutMode,
+        isPortrait: Bool
+    ) {
+        guard sessions.count >= 2,
+              let id = selectedSessionID,
+              let from = sessions.firstIndex(where: { $0.id == id }) else { return }
+
+        let to: Int?
+        switch layoutMode {
+        case .tabs:
+            switch direction {
+            case .left: to = from - 1
+            case .right: to = from + 1
+            case .up, .down: to = nil
+            }
+        case .tiled:
+            to = SessionTileLayout.neighborIndex(
+                of: from,
+                count: sessions.count,
+                isPortrait: isPortrait,
+                direction: direction
+            )
+        }
+
+        guard let target = to, sessions.indices.contains(target), target != from else { return }
+        sessions.swapAt(from, target)
+    }
+
     func savedTerminalTheme(for host: SSHHostProfile) -> TerminalTheme {
         if let id = themeID(for: host), let theme = themeRegistry.theme(id: id) {
             return theme

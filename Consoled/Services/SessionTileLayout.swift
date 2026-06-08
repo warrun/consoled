@@ -28,6 +28,74 @@ enum SessionTileLayout {
         return Array(landscape.prefix(count).map(transpose))
     }
 
+    /// Index of the tile to swap with when moving the tile at `index` in `direction`,
+    /// or `nil` if there's no tile that way. Purely geometric, computed from the
+    /// fractional slot rects so it matches whatever `slots(count:isPortrait:)` produces.
+    ///
+    /// Horizontal moves pick the nearest column, breaking ties by greatest vertical
+    /// overlap then the topmost tile. Vertical moves pick the nearest row, breaking
+    /// ties by greatest horizontal overlap then the rightmost tile. This reproduces
+    /// the two spanning-tile rules (full-height column → topmost neighbour; full-width
+    /// row → rightmost neighbour) without special-casing them.
+    static func neighborIndex(
+        of index: Int,
+        count: Int,
+        isPortrait: Bool,
+        direction: SessionMoveDirection
+    ) -> Int? {
+        let layout = slots(count: count, isPortrait: isPortrait)
+        guard layout.indices.contains(index) else { return nil }
+        let s = layout[index]
+        let eps: CGFloat = 1e-6
+
+        func overlap(_ a0: CGFloat, _ a1: CGFloat, _ b0: CGFloat, _ b1: CGFloat) -> CGFloat {
+            max(0, min(a1, b1) - max(a0, b0))
+        }
+        let candidates = layout.enumerated().filter { i, slot in
+            guard i != index else { return false }
+            switch direction {
+            case .right: return slot.x >= s.x + s.width - eps
+            case .left: return slot.x + slot.width <= s.x + eps
+            case .down: return slot.y >= s.y + s.height - eps
+            case .up: return slot.y + slot.height <= s.y + eps
+            }
+        }
+        guard !candidates.isEmpty else { return nil }
+
+        // Restrict to the nearest column (horizontal moves) or row (vertical moves).
+        let nearest: [(offset: Int, element: Slot)]
+        switch direction {
+        case .right:
+            let minX = candidates.map(\.element.x).min()!
+            nearest = candidates.filter { abs($0.element.x - minX) <= eps }
+        case .left:
+            let maxRight = candidates.map { $0.element.x + $0.element.width }.max()!
+            nearest = candidates.filter { abs(($0.element.x + $0.element.width) - maxRight) <= eps }
+        case .down:
+            let minY = candidates.map(\.element.y).min()!
+            nearest = candidates.filter { abs($0.element.y - minY) <= eps }
+        case .up:
+            let maxBottom = candidates.map { $0.element.y + $0.element.height }.max()!
+            nearest = candidates.filter { abs(($0.element.y + $0.element.height) - maxBottom) <= eps }
+        }
+
+        let best = nearest.max { lhs, rhs in
+            switch direction {
+            case .left, .right:
+                let lo = overlap(s.y, s.y + s.height, lhs.element.y, lhs.element.y + lhs.element.height)
+                let ro = overlap(s.y, s.y + s.height, rhs.element.y, rhs.element.y + rhs.element.height)
+                if abs(lo - ro) > eps { return lo < ro }
+                return lhs.element.y > rhs.element.y // tie → topmost (smaller y) wins
+            case .up, .down:
+                let lo = overlap(s.x, s.x + s.width, lhs.element.x, lhs.element.x + lhs.element.width)
+                let ro = overlap(s.x, s.x + s.width, rhs.element.x, rhs.element.x + rhs.element.width)
+                if abs(lo - ro) > eps { return lo < ro }
+                return lhs.element.x < rhs.element.x // tie → rightmost (larger x) wins
+            }
+        }
+        return best?.offset
+    }
+
     static func tileRects(for slot: Slot, in bounds: CGSize) -> TileRects {
         let contentWidth = max(bounds.width - outerMargin * 2, 0)
         let contentHeight = max(bounds.height - outerMargin * 2, 0)

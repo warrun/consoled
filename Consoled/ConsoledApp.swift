@@ -6,6 +6,7 @@ struct ConsoledApp: App {
     @State private var manager: SessionManager
     @State private var terminalSettings: TerminalSettings
     @State private var appSettings = AppSettings()
+    @State private var shortcutSettings = ShortcutSettings()
 
     init() {
         TerminalPrewarm.warm()
@@ -22,7 +23,8 @@ struct ConsoledApp: App {
             RootView(
                 manager: manager,
                 terminalSettings: terminalSettings,
-                appSettings: appSettings
+                appSettings: appSettings,
+                shortcutSettings: shortcutSettings
             )
         }
         .defaultSize(width: 1200, height: 800)
@@ -52,7 +54,8 @@ struct ConsoledApp: App {
             ConsoledSettingsView(
                 manager: manager,
                 terminalSettings: terminalSettings,
-                appSettings: appSettings
+                appSettings: appSettings,
+                shortcutSettings: shortcutSettings
             )
         }
     }

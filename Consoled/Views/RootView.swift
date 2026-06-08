@@ -7,10 +7,12 @@ struct RootView: View {
     @Bindable var manager: SessionManager
     @Bindable var terminalSettings: TerminalSettings
     @Bindable var appSettings: AppSettings
+    @Bindable var shortcutSettings: ShortcutSettings
     @State private var workspaceSettings = SessionWorkspaceSettings()
     @State private var uiPreferences = SessionUIPreferences()
     @State private var showingConfigPicker = false
     @State private var lastKnownWindowSize: CGSize = .zero
+    @State private var shortcutMonitor: ShortcutMonitor?
 
     var body: some View {
         NavigationSplitView {
@@ -90,6 +92,11 @@ struct RootView: View {
                 enabled: appSettings.restoreWorkspaceOnLaunch,
                 workspaceSettings: workspaceSettings
             )
+            startShortcutMonitor()
+        }
+        .onDisappear {
+            shortcutMonitor?.stop()
+            shortcutMonitor = nil
         }
         .background(WindowSizeReader { size in
             lastKnownWindowSize = size
@@ -115,6 +122,22 @@ struct RootView: View {
     private func openHostSettings(_ host: SSHHostProfile) {
         manager.selectHost(host)
         uiPreferences.showSettingsPanel()
+    }
+
+    private func startShortcutMonitor() {
+        guard shortcutMonitor == nil else { return }
+        let monitor = ShortcutMonitor(shortcutSettings: shortcutSettings)
+        monitor.start(
+            sessionCount: { manager.sessions.count },
+            handler: { direction in
+                manager.moveSelectedSession(
+                    direction,
+                    layoutMode: workspaceSettings.layoutMode,
+                    isPortrait: workspaceSettings.tileIsPortrait(for: lastKnownWindowSize)
+                )
+            }
+        )
+        shortcutMonitor = monitor
     }
 
     private func persistOnExit() {

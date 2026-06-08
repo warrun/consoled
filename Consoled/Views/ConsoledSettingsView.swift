@@ -5,10 +5,12 @@ struct ConsoledSettingsView: View {
     @Bindable var manager: SessionManager
     @Bindable var terminalSettings: TerminalSettings
     @Bindable var appSettings: AppSettings
+    @Bindable var shortcutSettings: ShortcutSettings
 
     @State private var showClearHostsWarning = false
     @State private var showClearHostsConfirm = false
     @State private var showingConfigPicker = false
+    @State private var showResetShortcutsConfirm = false
 
     var body: some View {
         TabView {
@@ -21,7 +23,13 @@ struct ConsoledSettingsView: View {
             sshTab
                 .tabItem { Label("SSH", systemImage: "lock.shield") }
         }
-        .frame(width: 520, height: 380)
+        .frame(width: 620, height: 640)
+        .alert("Reset shortcuts?", isPresented: $showResetShortcutsConfirm) {
+            Button("Reset", role: .destructive) { shortcutSettings.resetToDefaults() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Restore the default ⇧⌘ + arrow keys for reordering sessions.")
+        }
         .alert("Clear all hosts?", isPresented: $showClearHostsWarning) {
             Button("Continue", role: .destructive) { showClearHostsConfirm = true }
             Button("Cancel", role: .cancel) {}
@@ -96,9 +104,42 @@ struct ConsoledSettingsView: View {
             } header: {
                 Text("Session Restore")
             }
+
+            Section {
+                shortcutRow("Move Left", direction: .left)
+                shortcutRow("Move Right", direction: .right)
+                shortcutRow("Move Up", direction: .up)
+                shortcutRow("Move Down", direction: .down)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("**Tabs view:** Left and Right move the selected tab one position. Up and Down are unused.")
+                    Text("**Tiled view:** all four directions swap the selected tile with its neighbour in that direction.")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                Button("Reset to Defaults…") {
+                    showResetShortcutsConfirm = true
+                }
+            } header: {
+                Text("Reorder Sessions")
+            } footer: {
+                Text("Click a shortcut, then press the keys you want. At least one modifier (⌘ ⌥ ⌃ ⇧) is required.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .padding()
+    }
+
+    private func shortcutRow(_ label: String, direction: SessionMoveDirection) -> some View {
+        HStack {
+            Text(label)
+            Spacer()
+            ShortcutRecorderField(direction: direction, shortcutSettings: shortcutSettings)
+                .frame(width: 150, height: 24)
+        }
     }
 
     private var themesTab: some View {
