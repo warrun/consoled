@@ -4,11 +4,19 @@ enum SSHConfigImporter {
     static var defaultConfigPath: String {
         FileManager.default.homeDirectoryForCurrentUser
             .appending(path: ".ssh/config")
-            .path()
+            .path(percentEncoded: false)
     }
 
     static func configIsReadable(at path: String = defaultConfigPath) -> Bool {
         FileManager.default.isReadableFile(atPath: path)
+    }
+
+    /// Read and fully resolve every `Host` entry via `ssh -G` (import-time only).
+    static func importResolvedHosts(configPath: String = defaultConfigPath) throws -> [SSHHostProfile] {
+        let stubs = try importHostStubs(configPath: configPath)
+        return stubs.map { stub in
+            resolveHost(alias: stub.hostAlias, configPath: configPath) ?? stub
+        }
     }
 
     /// Fast path: parse `Host` aliases only (no subprocesses).
@@ -21,8 +29,7 @@ enum SSHConfigImporter {
         return parseHostNames(from: content).map { alias in
             SSHHostProfile(
                 displayName: alias,
-                hostAlias: alias,
-                source: .imported
+                hostAlias: alias
             )
         }
     }
@@ -76,16 +83,41 @@ enum SSHConfigImporter {
         let username = values["user"]
         let port = values["port"].flatMap(Int.init)
         let configForwards = parseLocalForwards(from: output)
+        let identityFile = parseNonDefaultIdentityFile(from: output)
 
         return SSHHostProfile(
             displayName: alias,
             hostAlias: alias,
-            source: .imported,
             configForwards: configForwards,
             hostname: hostname,
             username: username,
-            port: port
+            port: port,
+            identityFile: identityFile
         )
+    }
+
+    /// `ssh -G` always emits the implicit `~/.ssh/id_*` defaults. Only capture an
+    /// identity file when it is an explicit, non-default key worth storing.
+    static func parseNonDefaultIdentityFile(from sshGOutput: String) -> String? {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path(percentEncoded: false)
+        let defaultKeyStems = ["id_rsa", "id_dsa", "id_ecdsa", "id_ecdsa_sk", "id_ed25519", "id_ed25519_sk", "id_xmss"]
+        let defaultPaths = Set(defaultKeyStems.map { "\(home)/.ssh/\($0)" })
+
+        for line in sshGOutput.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.lowercased().hasPrefix("identityfile ") else { continue }
+
+            let value = String(trimmed.dropFirst("identityfile ".count)).trimmingCharacters(in: .whitespaces)
+            guard !value.isEmpty else { continue }
+
+            let expanded = value.hasPrefix("~/")
+                ? "\(home)/\(value.dropFirst(2))"
+                : value
+            if defaultPaths.contains(expanded) { continue }
+            return value
+        }
+
+        return nil
     }
 
     static func parseKeyValues(from sshGOutput: String) -> [String: String] {

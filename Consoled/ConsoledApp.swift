@@ -2,13 +2,28 @@ import SwiftUI
 
 @main
 struct ConsoledApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @State private var manager: SessionManager
+    @State private var terminalSettings: TerminalSettings
+    @State private var appSettings = AppSettings()
+
     init() {
         TerminalPrewarm.warm()
+        let registry = TerminalThemeRegistry()
+        let sessionManager = SessionManager(themeRegistry: registry)
+        sessionManager.themeRegistry.onPersist = { sessionManager.saveAllPreferences() }
+        sessionManager.themeRegistry.onChange = { sessionManager.refreshSessionThemesFromRegistry() }
+        _manager = State(initialValue: sessionManager)
+        _terminalSettings = State(initialValue: TerminalSettings(themeRegistry: registry))
     }
 
     var body: some Scene {
         WindowGroup {
-            RootView()
+            RootView(
+                manager: manager,
+                terminalSettings: terminalSettings,
+                appSettings: appSettings
+            )
         }
         .defaultSize(width: 1200, height: 800)
         .windowToolbarStyle(.unified(showsTitle: true))
@@ -26,6 +41,14 @@ struct ConsoledApp: App {
                 }
                 .keyboardShortcut("w", modifiers: [.command])
             }
+        }
+
+        Settings {
+            ConsoledSettingsView(
+                manager: manager,
+                terminalSettings: terminalSettings,
+                appSettings: appSettings
+            )
         }
     }
 }

@@ -29,7 +29,7 @@ struct SessionWorkspaceView: View {
                         terminalHost
 
                         if workspaceSettings.layoutMode == .tiled {
-                            SessionTiledChrome(manager: manager)
+                            SessionTiledChrome(manager: manager, workspaceSettings: workspaceSettings)
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -62,10 +62,10 @@ struct SessionWorkspaceView: View {
             }
         }
         .onAppear {
-            manager.defaultTerminalProfile = terminalSettings.defaultProfile
+            manager.defaultTerminalTheme = terminalSettings.defaultTheme
         }
-        .onChange(of: terminalSettings.defaultProfile) { _, profile in
-            manager.defaultTerminalProfile = profile
+        .onChange(of: terminalSettings.defaultThemeID) { _, themeID in
+            manager.applyDefaultTheme(id: themeID)
         }
     }
 
@@ -75,6 +75,7 @@ struct SessionWorkspaceView: View {
             selectedSessionID: manager.selectedSessionID,
             sshPath: SSHCommandBuilder.sshPath,
             layoutMode: workspaceSettings.layoutMode,
+            tileIsPortrait: { workspaceSettings.tileIsPortrait(for: $0) },
             argsForProfile: { manager.sshArgs(for: $0) },
             onSelectSession: { sessionID in
                 guard let session = manager.sessions.first(where: { $0.id == sessionID }) else { return }
@@ -94,7 +95,7 @@ private struct SessionTabBar: View {
                 ForEach(manager.sessions) { session in
                     SessionTabButton(
                         title: session.title,
-                        accent: session.terminalProfile.accent,
+                        accent: session.terminalTheme.accent,
                         isSelected: manager.selectedSessionID == session.id,
                         onSelect: { manager.selectSession(session) },
                         onClose: { manager.closeSession(session) }

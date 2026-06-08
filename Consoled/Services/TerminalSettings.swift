@@ -5,9 +5,11 @@ import Foundation
 final class TerminalSettings {
     private static let profileKey = "terminalProfileID"
 
-    var defaultProfile: TerminalProfile {
+    private let themeRegistry: TerminalThemeRegistry
+
+    var defaultThemeID: String {
         didSet {
-            guard defaultProfile != oldValue else { return }
+            guard defaultThemeID != oldValue else { return }
             save()
             onChange?()
         }
@@ -15,16 +17,21 @@ final class TerminalSettings {
 
     var onChange: (() -> Void)?
 
-    init() {
+    var defaultTheme: TerminalTheme {
+        themeRegistry.theme(id: defaultThemeID) ?? themeRegistry.defaultTheme()
+    }
+
+    init(themeRegistry: TerminalThemeRegistry) {
+        self.themeRegistry = themeRegistry
         if let id = UserDefaults.standard.string(forKey: Self.profileKey),
-           let profile = TerminalProfile(id: id) {
-            defaultProfile = profile
+           themeRegistry.theme(id: id) != nil {
+            defaultThemeID = id
         } else {
-            defaultProfile = .homebrew
+            defaultThemeID = BuiltInTerminalThemes.defaultID
         }
     }
 
     private func save() {
-        UserDefaults.standard.set(defaultProfile.id, forKey: Self.profileKey)
+        UserDefaults.standard.set(defaultThemeID, forKey: Self.profileKey)
     }
 }

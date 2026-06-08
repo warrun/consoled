@@ -3,12 +3,12 @@ import Foundation
 struct TerminalSession: Identifiable, Hashable {
     let id: UUID
     var profile: SSHHostProfile
-    var terminalProfile: TerminalProfile
+    var terminalTheme: TerminalTheme
 
-    init(id: UUID = UUID(), profile: SSHHostProfile, terminalProfile: TerminalProfile = .homebrew) {
+    init(id: UUID = UUID(), profile: SSHHostProfile, terminalTheme: TerminalTheme) {
         self.id = id
         self.profile = profile
-        self.terminalProfile = terminalProfile
+        self.terminalTheme = terminalTheme
     }
 
     var title: String {

@@ -22,7 +22,7 @@ final class TerminalPanelPlate: NSView {
     }
 
     func applyCornerShape(_ shape: TerminalContainerView.PanelCornerShape) {
-        let radius = TerminalProfile.panelCornerRadius
+        let radius = TerminalTheme.panelCornerRadius
         let corners: CACornerMask = switch shape {
         case .all:
             [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
@@ -87,7 +87,7 @@ final class TerminalContainerView: NSView {
     private var onFirstOutput: (() -> Void)?
     private var onExit: ((Int32?) -> Void)?
     private let exitHandler = TerminalExitHandler()
-    private(set) var profile: TerminalProfile = .homebrew
+    private(set) var theme: TerminalTheme = TerminalTheme(definition: BuiltInTerminalThemes.all[0])
 
     override var isOpaque: Bool { false }
 
@@ -106,7 +106,7 @@ final class TerminalContainerView: NSView {
 
         panelPlate.translatesAutoresizingMaskIntoConstraints = false
 
-        let padding = TerminalProfile.textPadding
+        let padding = TerminalTheme.textPadding
         terminalView.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(frostBackdrop)
@@ -130,13 +130,13 @@ final class TerminalContainerView: NSView {
             terminalView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -padding),
         ])
         applyPanelChrome()
-        applyAppearance(.homebrew)
+        applyAppearance(TerminalTheme(definition: BuiltInTerminalThemes.all[0]))
     }
 
-    func updateFrostedBackdrop(profile: TerminalProfile) {
+    func updateFrostedBackdrop(theme: TerminalTheme) {
         frostBackdrop.material = .hudWindow
         frostBackdrop.state = .active
-        panelPlate.fillColor = profile.background
+        panelPlate.fillColor = theme.background
         applyPanelChrome()
     }
 
@@ -153,7 +153,7 @@ final class TerminalContainerView: NSView {
     }
 
     private func applyPanelChrome() {
-        let radius = TerminalProfile.panelCornerRadius
+        let radius = TerminalTheme.panelCornerRadius
         let corners: CACornerMask = switch panelCornerShape {
         case .all:
             [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
@@ -180,10 +180,10 @@ final class TerminalContainerView: NSView {
         TerminalAppearance.enforceClearLayer(on: terminalView)
     }
 
-    func applyAppearance(_ profile: TerminalProfile) {
-        self.profile = profile
-        TerminalAppearance.applyContainer(profile, to: self)
-        TerminalAppearance.apply(profile, to: terminalView)
+    func applyAppearance(_ theme: TerminalTheme) {
+        self.theme = theme
+        TerminalAppearance.applyContainer(theme, to: self)
+        TerminalAppearance.apply(theme, to: terminalView)
     }
 
     func setSelected(_ selected: Bool) {

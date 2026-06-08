@@ -6,10 +6,10 @@ final class ProfileStore {
     static let shared = ProfileStore()
 
     /// Consoled data only (`~/Library/Application Support/Consoled/profiles.json`).
-    /// Never reads or writes `~/.ssh/config`.
+    /// Never reads or writes `~/.ssh/config`. Never deletes or rewrites the store
+    /// on a read failure — a bad read must never destroy good data.
 
     private static let appSupportFolderName = "Consoled"
-    private static let legacyAppSupportFolderName = "Termite"
     private static let logger = Logger(subsystem: "vigilance.digital.Consoled", category: "ProfileStore")
 
     private let fileManager = FileManager.default
@@ -28,85 +28,32 @@ final class ProfileStore {
     }
 
     func load() -> ProfileStoreData {
-        migrateLegacyStoreIfNeeded()
-
-        guard fileManager.fileExists(atPath: storageURL.path()) else {
+        // NOTE: `URL.path()` returns a percent-encoded string (e.g. "Application%20Support"),
+        // which `FileManager` path APIs do not understand. Always use the decoded form.
+        guard fileManager.fileExists(atPath: storageURL.path(percentEncoded: false)) else {
+            Self.logger.info("No profiles.json found; starting empty")
             return ProfileStoreData()
         }
 
         do {
             let data = try Data(contentsOf: storageURL)
-            return try decoder.decode(ProfileStoreData.self, from: data)
+            let store = try decoder.decode(ProfileStoreData.self, from: data)
+            Self.logger.info("Loaded profiles.json: \(store.hostCatalog.count, privacy: .public) hosts")
+            return store
         } catch {
-            Self.logger.error("Failed to load profiles.json: \(error.localizedDescription, privacy: .public)")
-            backupCorruptStore()
+            // Non-destructive: keep the file exactly as-is so the user can recover.
+            Self.logger.error("Failed to decode profiles.json: \(error.localizedDescription, privacy: .public). Leaving file untouched.")
             return ProfileStoreData()
         }
-    }
-
-    private func decodeStore(at url: URL) -> ProfileStoreData? {
-        guard fileManager.fileExists(atPath: url.path()),
-              let data = try? Data(contentsOf: url) else {
-            return nil
-        }
-        return try? decoder.decode(ProfileStoreData.self, from: data)
-    }
-
-    private func isEffectivelyEmpty(_ data: ProfileStoreData) -> Bool {
-        data.manualProfiles.isEmpty
-            && data.portForwardOverrides.isEmpty
-            && data.hostConnectionOverrides.isEmpty
-            && data.terminalProfileOverrides.isEmpty
-            && data.hiddenImportedHostAliases.isEmpty
-            && data.sshConfigBookmark == nil
-            && !data.sshConfigImportEnabled
     }
 
     func save(_ data: ProfileStoreData) {
         do {
             let encoded = try encoder.encode(data)
             try encoded.write(to: storageURL, options: .atomic)
+            Self.logger.info("Saved profiles.json: \(data.hostCatalog.count, privacy: .public) hosts")
         } catch {
             Self.logger.error("Failed to save profiles.json: \(error.localizedDescription, privacy: .public)")
         }
-    }
-
-    /// One-time migration from the pre-rename Termite Application Support folder.
-    private func migrateLegacyStoreIfNeeded() {
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let legacyURL = appSupport
-            .appending(path: Self.legacyAppSupportFolderName, directoryHint: .isDirectory)
-            .appending(path: "profiles.json")
-
-        guard let legacyData = decodeStore(at: legacyURL),
-              !isEffectivelyEmpty(legacyData) else {
-            return
-        }
-
-        let shouldCopy: Bool
-        if fileManager.fileExists(atPath: storageURL.path()) {
-            shouldCopy = (decodeStore(at: storageURL).map(isEffectivelyEmpty) ?? true)
-        } else {
-            shouldCopy = true
-        }
-
-        guard shouldCopy else { return }
-
-        try? fileManager.createDirectory(
-            at: storageURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        if fileManager.fileExists(atPath: storageURL.path()) {
-            try? fileManager.removeItem(at: storageURL)
-        }
-        try? fileManager.copyItem(at: legacyURL, to: storageURL)
-        Self.logger.info("Migrated profiles from legacy Termite Application Support folder")
-    }
-
-    private func backupCorruptStore() {
-        let corruptURL = storageURL.deletingPathExtension().appendingPathExtension("corrupt.json")
-        try? fileManager.removeItem(at: corruptURL)
-        try? fileManager.copyItem(at: storageURL, to: corruptURL)
-        Self.logger.warning("Backed up corrupt profiles.json to \(corruptURL.path(), privacy: .public)")
     }
 }

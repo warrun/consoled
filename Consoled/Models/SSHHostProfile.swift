@@ -1,10 +1,5 @@
 import Foundation
 
-enum ProfileSource: String, Codable, Hashable {
-    case imported
-    case manual
-}
-
 struct PortForward: Identifiable, Codable, Hashable {
     var id: UUID
     var localPort: Int
@@ -27,48 +22,41 @@ struct SSHHostProfile: Identifiable, Codable, Hashable {
     var id: UUID
     var displayName: String
     var hostAlias: String
-    var source: ProfileSource
     var portForwards: [PortForward]
     var configForwards: [PortForward]
     var hostname: String?
     var username: String?
     var port: Int?
+    var identityFile: String?
+    var themeID: String?
 
     init(
         id: UUID = UUID(),
         displayName: String,
         hostAlias: String,
-        source: ProfileSource,
         portForwards: [PortForward] = [],
         configForwards: [PortForward] = [],
         hostname: String? = nil,
         username: String? = nil,
-        port: Int? = nil
+        port: Int? = nil,
+        identityFile: String? = nil,
+        themeID: String? = nil
     ) {
         self.id = id
         self.displayName = displayName
         self.hostAlias = hostAlias
-        self.source = source
         self.portForwards = portForwards
         self.configForwards = configForwards
         self.hostname = hostname
         self.username = username
         self.port = port
+        self.identityFile = identityFile
+        self.themeID = themeID
     }
 
-    /// Real connect address from `ssh -G` / manual entry — never the SSH config alias.
     var connectableHostname: String? {
         guard let hostname, !hostname.isEmpty else { return nil }
-        if source == .imported && hostname == hostAlias { return nil }
         return hostname
-    }
-
-    var isConnectionResolved: Bool {
-        connectableHostname != nil
-    }
-
-    var resolvedHostname: String? {
-        connectableHostname
     }
 
     var subtitle: String {
@@ -82,54 +70,18 @@ struct SSHHostProfile: Identifiable, Codable, Hashable {
     }
 }
 
-struct HostConnectionOverride: Codable, Hashable {
-    var displayName: String?
-    var hostname: String?
-    var username: String?
-    var port: Int?
-}
-
 struct ProfileStoreData: Codable {
-    var manualProfiles: [SSHHostProfile]
-    var portForwardOverrides: [String: [PortForward]]
-    var hostConnectionOverrides: [String: HostConnectionOverride]
-    var sshConfigImportEnabled: Bool
-    var sshConfigPath: String?
-    var hiddenImportedHostAliases: [String]
-    /// Saved terminal color theme per host alias (`TerminalProfile.rawValue`).
-    var terminalProfileOverrides: [String: String]
-    /// Security-scoped bookmark for a user-chosen SSH config file (not needed for default path).
-    var sshConfigBookmark: Data?
+    var hostCatalog: [SSHHostProfile]
+    var customThemes: [TerminalThemeDefinition]
+    var builtInThemeOverrides: [String: TerminalThemeDefinition]
 
     init(
-        manualProfiles: [SSHHostProfile] = [],
-        portForwardOverrides: [String: [PortForward]] = [:],
-        hostConnectionOverrides: [String: HostConnectionOverride] = [:],
-        sshConfigImportEnabled: Bool = false,
-        sshConfigPath: String? = nil,
-        hiddenImportedHostAliases: [String] = [],
-        terminalProfileOverrides: [String: String] = [:],
-        sshConfigBookmark: Data? = nil
+        hostCatalog: [SSHHostProfile] = [],
+        customThemes: [TerminalThemeDefinition] = [],
+        builtInThemeOverrides: [String: TerminalThemeDefinition] = [:]
     ) {
-        self.manualProfiles = manualProfiles
-        self.portForwardOverrides = portForwardOverrides
-        self.hostConnectionOverrides = hostConnectionOverrides
-        self.sshConfigImportEnabled = sshConfigImportEnabled
-        self.sshConfigPath = sshConfigPath
-        self.hiddenImportedHostAliases = hiddenImportedHostAliases
-        self.terminalProfileOverrides = terminalProfileOverrides
-        self.sshConfigBookmark = sshConfigBookmark
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        manualProfiles = try container.decodeIfPresent([SSHHostProfile].self, forKey: .manualProfiles) ?? []
-        portForwardOverrides = try container.decodeIfPresent([String: [PortForward]].self, forKey: .portForwardOverrides) ?? [:]
-        hostConnectionOverrides = try container.decodeIfPresent([String: HostConnectionOverride].self, forKey: .hostConnectionOverrides) ?? [:]
-        sshConfigImportEnabled = try container.decodeIfPresent(Bool.self, forKey: .sshConfigImportEnabled) ?? false
-        sshConfigPath = try container.decodeIfPresent(String.self, forKey: .sshConfigPath)
-        hiddenImportedHostAliases = try container.decodeIfPresent([String].self, forKey: .hiddenImportedHostAliases) ?? []
-        terminalProfileOverrides = try container.decodeIfPresent([String: String].self, forKey: .terminalProfileOverrides) ?? [:]
-        sshConfigBookmark = try container.decodeIfPresent(Data.self, forKey: .sshConfigBookmark)
+        self.hostCatalog = hostCatalog
+        self.customThemes = customThemes
+        self.builtInThemeOverrides = builtInThemeOverrides
     }
 }

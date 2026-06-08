@@ -35,14 +35,8 @@ struct HostSidebarView: View {
                             Button("Settings") {
                                 onOpenHostSettings(host)
                             }
-                            if host.source == .manual {
-                                Button("Delete", role: .destructive) {
-                                    manager.deleteManualHost(host)
-                                }
-                            } else {
-                                Button("Remove from Consoled", role: .destructive) {
-                                    manager.removeImportedHost(host)
-                                }
+                            Button("Delete", role: .destructive) {
+                                manager.deleteHost(host)
                             }
                         }
                     }
@@ -54,16 +48,6 @@ struct HostSidebarView: View {
         .searchable(text: $searchText, prompt: "Filter hosts")
         .toolbar {
             ToolbarItemGroup {
-                Button {
-                    manager.requestSSHConfigImport()
-                } label: {
-                    if manager.sshConfigImportEnabled {
-                        Label("Refresh Hosts", systemImage: "arrow.clockwise")
-                    } else {
-                        Label("Import SSH Config", systemImage: "arrow.down.doc")
-                    }
-                }
-
                 Button {
                     showingAddHost = true
                 } label: {
@@ -80,7 +64,7 @@ struct HostSidebarView: View {
         }
         .sheet(isPresented: $showingAddHost) {
             HostEditorSheet { profile in
-                manager.addManualHost(profile)
+                manager.addHost(profile)
             }
         }
     }
@@ -94,7 +78,7 @@ struct HostSidebarView: View {
                 description: Text(emptyStateDescription)
             )
 
-            if !manager.sshConfigImportEnabled {
+            if !manager.hasSavedHosts {
                 Button("Import from SSH Config…") {
                     manager.requestSSHConfigImport()
                 }
@@ -109,10 +93,7 @@ struct HostSidebarView: View {
         if let importError = manager.importError {
             return importError
         }
-        if manager.sshConfigImportEnabled {
-            return "Add a host or refresh your SSH config."
-        }
-        return "Add a host manually or import hosts from your SSH config."
+        return "Add a host or import from your SSH config."
     }
 }
 
@@ -172,18 +153,8 @@ private struct HostRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(host.displayName)
-                    .font(.headline)
-                if host.source == .manual {
-                    Text("manual")
-                        .font(.caption2)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(.quaternary)
-                        .clipShape(Capsule())
-                }
-            }
+            Text(host.displayName)
+                .font(.headline)
             Text(host.subtitle)
                 .font(.caption)
                 .foregroundStyle(.secondary)

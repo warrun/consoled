@@ -2,15 +2,15 @@ import AppKit
 import SwiftTerm
 
 enum TerminalAppearance {
-    static func apply(_ profile: TerminalProfile, to terminal: ConsoledTerminalView) {
-        terminal.nativeForegroundColor = profile.accent
+    static func apply(_ theme: TerminalTheme, to terminal: ConsoledTerminalView) {
+        terminal.nativeForegroundColor = theme.accent
         terminal.nativeBackgroundColor = .clear
-        terminal.caretColor = profile.accent
+        terminal.caretColor = theme.accent
         terminal.caretTextColor = NSColor.black
-        terminal.selectedTextBackgroundColor = profile.selection
-        terminal.font = profile.font
+        terminal.selectedTextBackgroundColor = theme.selection
+        terminal.font = theme.font
         terminal.useBrightColors = false
-        terminal.installColors(profile.ansiPalette)
+        terminal.installColors(theme.ansiPalette)
         terminal.getTerminal().setCursorStyle(.blinkBlock)
         enforceClearLayer(on: terminal)
         DispatchQueue.main.async {
@@ -18,8 +18,8 @@ enum TerminalAppearance {
         }
     }
 
-    static func applyContainer(_ profile: TerminalProfile, to container: TerminalContainerView) {
-        container.updateFrostedBackdrop(profile: profile)
+    static func applyContainer(_ theme: TerminalTheme, to container: TerminalContainerView) {
+        container.updateFrostedBackdrop(theme: theme)
         enforceClearLayer(on: container)
         enforceClearLayer(on: container.terminalView)
     }

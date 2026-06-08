@@ -7,14 +7,10 @@ enum TerminalPrewarm {
     static func warm() {
         guard prewarmView == nil else { return }
         let view = ConsoledTerminalView(frame: NSRect(x: 0, y: 0, width: 80, height: 24))
-        let profile: TerminalProfile = {
-            if let id = UserDefaults.standard.string(forKey: "terminalProfileID"),
-               let saved = TerminalProfile(id: id) {
-                return saved
-            }
-            return .homebrew
-        }()
-        TerminalAppearance.apply(profile, to: view)
+        let themeID = UserDefaults.standard.string(forKey: "terminalProfileID") ?? BuiltInTerminalThemes.defaultID
+        let definition = BuiltInTerminalThemes.all.first { $0.id == themeID } ?? BuiltInTerminalThemes.all[0]
+        let theme = TerminalTheme(definition: definition)
+        TerminalAppearance.apply(theme, to: view)
         prewarmView = view
     }
 }

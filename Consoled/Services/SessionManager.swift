@@ -4,28 +4,36 @@ import Observation
 @MainActor
 @Observable
 final class SessionManager {
-    private(set) var hosts: [SSHHostProfile] = []
+    private(set) var hostCatalog: [SSHHostProfile] = []
     private(set) var sessions: [TerminalSession] = []
     private(set) var selectedHostID: UUID?
     private(set) var selectedSessionID: UUID?
     private(set) var importError: String?
-    private(set) var configPath: String
-    private(set) var sshConfigImportEnabled: Bool
     var showConfigAccessSheet = false
     var showConfigConsentSheet = false
-    var defaultTerminalProfile: TerminalProfile = .homebrew
+    var defaultTerminalTheme: TerminalTheme
 
-    private var manualProfiles: [SSHHostProfile] = []
-    private var portForwardOverrides: [String: [PortForward]] = [:]
-    private var hostConnectionOverrides: [String: HostConnectionOverride] = [:]
-    private var terminalProfileOverrides: [String: String] = [:]
-    private var sshConfigBookmark: Data?
-    private var hiddenImportedHostAliases = Set<String>()
-    private var resolvedAliases = Set<String>()
+    let themeRegistry: TerminalThemeRegistry
+
+    private var pendingImportPath: String?
+
+    var hosts: [SSHHostProfile] { hostCatalog }
+
+    var hasSavedHosts: Bool {
+        !hostCatalog.isEmpty
+    }
+
+    var hostCount: Int {
+        hostCatalog.count
+    }
+
+    var importAttemptPath: String {
+        pendingImportPath ?? SSHConfigImporter.defaultConfigPath
+    }
 
     var selectedHost: SSHHostProfile? {
         guard let selectedHostID else { return nil }
-        return hosts.first { $0.id == selectedHostID }
+        return hostCatalog.first { $0.id == selectedHostID }
     }
 
     var selectedSession: TerminalSession? {
@@ -33,90 +41,86 @@ final class SessionManager {
         return sessions.first { $0.id == selectedSessionID }
     }
 
-    init(configPath: String = SSHConfigImporter.defaultConfigPath) {
-        self.configPath = configPath
-        self.sshConfigImportEnabled = false
-        loadPersistedProfiles()
-        reloadHosts()
+    var assignedThemeIDs: Set<String> {
+        Set(hostCatalog.compactMap(\.themeID))
+    }
+
+    init(themeRegistry: TerminalThemeRegistry) {
+        self.themeRegistry = themeRegistry
+        self.defaultTerminalTheme = themeRegistry.defaultTheme()
+        let data = ProfileStore.shared.load()
+        loadPersistedProfiles(from: data)
+        themeRegistry.importFromProfileStore(
+            custom: data.customThemes,
+            builtInOverrides: data.builtInThemeOverrides
+        )
+        if let id = UserDefaults.standard.string(forKey: "terminalProfileID"),
+           let theme = themeRegistry.theme(id: id) {
+            defaultTerminalTheme = theme
+        } else {
+            defaultTerminalTheme = themeRegistry.defaultTheme()
+        }
+        ensureSelectionValidity()
     }
 
     func requestSSHConfigImport() {
-        if sshConfigImportEnabled {
-            importSSHConfig()
-        } else {
-            showConfigConsentSheet = true
-        }
+        showConfigConsentSheet = true
     }
 
     func grantSSHConfigAccess(path: String, bookmark: Data? = nil) {
-        sshConfigImportEnabled = true
-        configPath = path
-        if path == SSHConfigImporter.defaultConfigPath {
-            sshConfigBookmark = nil
-        } else {
-            sshConfigBookmark = bookmark
-        }
-        resolvedAliases.removeAll()
-        persistProfiles()
+        pendingImportPath = resolvedImportPath(path: path, bookmark: bookmark)
         showConfigConsentSheet = false
-        importSSHConfig()
-    }
-
-    func resetSSHConfigToDefault() {
-        grantSSHConfigAccess(path: SSHConfigImporter.defaultConfigPath, bookmark: nil)
+        performSSHConfigImport()
     }
 
     func dismissConfigConsent() {
         showConfigConsentSheet = false
     }
 
-    func importSSHConfig() {
-        guard sshConfigImportEnabled else {
+    func clearAllHosts() {
+        importError = nil
+        hostCatalog = []
+        pendingImportPath = nil
+        showConfigAccessSheet = false
+        ensureSelectionValidity()
+        persistProfiles()
+    }
+
+    private func performSSHConfigImport() {
+        guard let configPath = pendingImportPath else {
             showConfigConsentSheet = true
             return
         }
 
         importError = nil
-        resolveSSHConfigPathIfNeeded()
 
         guard SSHConfigImporter.configIsReadable(at: configPath) else {
             importError = "Cannot read SSH config at \(configPath)."
             showConfigAccessSheet = true
-            hosts = manualProfiles
-            ensureSelectionValidity()
             return
         }
 
         do {
-            let stubs = try SSHConfigImporter.importHostStubs(configPath: configPath)
-            hosts = mergeStubs(stubs) + manualProfiles
+            let resolved = try SSHConfigImporter.importResolvedHosts(configPath: configPath)
+            hostCatalog = mergeImportedHosts(resolved)
+            pendingImportPath = nil
+            showConfigAccessSheet = false
             ensureSelectionValidity()
-            for stub in stubs {
-                enrichHost(alias: stub.hostAlias)
-            }
+            persistProfiles()
         } catch {
             importError = error.localizedDescription
-            hosts = manualProfiles
-            ensureSelectionValidity()
-            return
-        }
-
-        if sessions.isEmpty, let selectedHost {
-            enrichHost(alias: selectedHost.hostAlias)
+            showConfigAccessSheet = true
         }
     }
 
-    func refreshHosts() {
-        importSSHConfig()
-    }
-
-    private func reloadHosts() {
-        if sshConfigImportEnabled {
-            importSSHConfig()
-        } else {
-            hosts = manualProfiles
-            ensureSelectionValidity()
+    private func resolvedImportPath(path: String, bookmark: Data?) -> String {
+        guard path != SSHConfigImporter.defaultConfigPath,
+              let bookmark,
+              let url = SSHConfigBookmark.resolve(bookmark) else {
+            return path
         }
+        _ = url.startAccessingSecurityScopedResource()
+        return url.path(percentEncoded: false)
     }
 
     func selectHost(_ host: SSHHostProfile) {
@@ -126,24 +130,23 @@ final class SessionManager {
         } else {
             selectedSessionID = nil
         }
-        enrichHost(alias: host.hostAlias)
     }
 
     func session(for host: SSHHostProfile) -> TerminalSession? {
         sessions.last(where: { $0.profile.id == host.id })
     }
 
-    func connect(to host: SSHHostProfile) {
+    func connect(to host: SSHHostProfile, themeID: String? = nil) {
         ConnectTiming.markConnect()
 
-        let profile = hosts.first(where: { $0.id == host.id }) ?? host
+        let profile = hostCatalog.first(where: { $0.id == host.id }) ?? host
         selectedHostID = profile.id
-        let session = TerminalSession(profile: profile, terminalProfile: savedTerminalProfile(for: profile))
+        let theme = resolvedTheme(for: profile, explicitThemeID: themeID)
+        let session = TerminalSession(profile: profile, terminalTheme: theme)
         sessions.append(session)
         selectedSessionID = session.id
 
         ConnectTiming.mark("session added to manager")
-        enrichHost(alias: profile.hostAlias)
     }
 
     func connectSelectedHost() {
@@ -173,39 +176,54 @@ final class SessionManager {
         selectedHostID = session.profile.id
     }
 
-    func savedTerminalProfile(for host: SSHHostProfile) -> TerminalProfile {
-        if let id = terminalProfileOverrides[host.hostAlias],
-           let profile = TerminalProfile(id: id) {
-            return profile
+    func savedTerminalTheme(for host: SSHHostProfile) -> TerminalTheme {
+        if let id = themeID(for: host), let theme = themeRegistry.theme(id: id) {
+            return theme
         }
-        return defaultTerminalProfile
+        return defaultTerminalTheme
     }
 
-    func setTerminalProfile(_ profile: TerminalProfile, forHost host: SSHHostProfile) {
-        terminalProfileOverrides[host.hostAlias] = profile.id
-        for index in sessions.indices where sessions[index].profile.hostAlias == host.hostAlias {
-            sessions[index].terminalProfile = profile
+    func savedTerminalThemeID(for host: SSHHostProfile) -> String {
+        themeID(for: host) ?? defaultTerminalTheme.id
+    }
+
+    func setTerminalTheme(_ theme: TerminalTheme, forHost host: SSHHostProfile) {
+        guard let index = hostCatalog.firstIndex(where: { $0.id == host.id }) else { return }
+        hostCatalog[index].themeID = theme.id
+        let updated = hostCatalog[index]
+        for sessionIndex in sessions.indices where sessions[sessionIndex].profile.id == host.id {
+            sessions[sessionIndex].profile = updated
+            sessions[sessionIndex].terminalTheme = theme
         }
         persistProfiles()
     }
 
-    func setTerminalProfile(_ profile: TerminalProfile, for sessionID: UUID) {
-        guard let session = sessions.first(where: { $0.id == sessionID }) else { return }
-        setTerminalProfile(profile, forHost: session.profile)
+    func applyDefaultTheme(id: String) {
+        guard let theme = themeRegistry.theme(id: id) else { return }
+        defaultTerminalTheme = theme
+        for index in sessions.indices {
+            guard sessions[index].profile.themeID == nil else { continue }
+            sessions[index].terminalTheme = theme
+        }
     }
 
-    func updateManualHost(_ profile: SSHHostProfile) {
-        guard profile.source == .manual else { return }
-        guard let manualIndex = manualProfiles.firstIndex(where: { $0.id == profile.id }) else { return }
-
-        manualProfiles[manualIndex] = profile
-
-        if let hostIndex = hosts.firstIndex(where: { $0.id == profile.id }) {
-            hosts[hostIndex] = profile
+    func refreshSessionThemesFromRegistry() {
+        defaultTerminalTheme = themeRegistry.theme(id: defaultTerminalTheme.id) ?? themeRegistry.defaultTheme()
+        for index in sessions.indices {
+            let themeID = sessions[index].profile.themeID ?? defaultTerminalTheme.id
+            if let theme = themeRegistry.theme(id: themeID) {
+                sessions[index].terminalTheme = theme
+            }
         }
+    }
 
-        for index in sessions.indices where sessions[index].profile.id == profile.id {
-            sessions[index].profile = profile
+    func updateHost(_ profile: SSHHostProfile) {
+        guard let index = hostCatalog.firstIndex(where: { $0.id == profile.id }) else { return }
+
+        hostCatalog[index] = profile
+
+        for sessionIndex in sessions.indices where sessions[sessionIndex].profile.id == profile.id {
+            sessions[sessionIndex].profile = profile
         }
 
         persistProfiles()
@@ -216,86 +234,40 @@ final class SessionManager {
         displayName: String,
         hostname: String,
         username: String,
-        port: Int
+        port: Int,
+        identityFile: String
     ) {
-        if host.source == .manual {
-            var updated = host
-            updated.displayName = displayName
-            updated.hostAlias = displayName
-            updated.hostname = hostname
-            let trimmedUser = username.trimmingCharacters(in: .whitespaces)
-            updated.username = trimmedUser.isEmpty ? nil : trimmedUser
-            updated.port = port
-            updateManualHost(updated)
-            return
-        }
-
-        var override = hostConnectionOverrides[host.hostAlias] ?? HostConnectionOverride()
-        override.displayName = displayName
-        if hostname == host.hostAlias {
-            override.hostname = nil
-        } else {
-            override.hostname = hostname
-        }
+        var updated = host
+        updated.displayName = displayName
+        updated.hostname = hostname
         let trimmedUser = username.trimmingCharacters(in: .whitespaces)
-        override.username = trimmedUser.isEmpty ? nil : trimmedUser
-        override.port = port
-        hostConnectionOverrides[host.hostAlias] = override
-
-        if let index = hosts.firstIndex(where: { $0.id == host.id }) {
-            hosts[index] = applyOverride(override, to: hosts[index])
-        }
-
-        for index in sessions.indices where sessions[index].profile.id == host.id {
-            sessions[index].profile = applyOverride(override, to: sessions[index].profile)
-        }
-
-        persistProfiles()
-    }
-
-    func connectionOverride(for host: SSHHostProfile) -> HostConnectionOverride? {
-        guard host.source == .imported else { return nil }
-        return hostConnectionOverrides[host.hostAlias]
+        updated.username = trimmedUser.isEmpty ? nil : trimmedUser
+        updated.port = port
+        let trimmedKey = identityFile.trimmingCharacters(in: .whitespaces)
+        updated.identityFile = trimmedKey.isEmpty ? nil : trimmedKey
+        updateHost(updated)
     }
 
     func updatePortForwards(for host: SSHHostProfile, forwards: [PortForward]) {
-        if host.source == .manual {
-            guard let index = manualProfiles.firstIndex(where: { $0.id == host.id }) else { return }
-            manualProfiles[index].portForwards = forwards
-            persistProfiles()
-        } else {
-            portForwardOverrides[host.hostAlias] = forwards
-            persistProfiles()
-        }
+        guard let index = hostCatalog.firstIndex(where: { $0.id == host.id }) else { return }
+        hostCatalog[index].portForwards = forwards
+        persistProfiles()
 
-        if let index = hosts.firstIndex(where: { $0.id == host.id }) {
-            hosts[index].portForwards = forwards
+        for sessionIndex in sessions.indices where sessions[sessionIndex].profile.id == host.id {
+            sessions[sessionIndex].profile.portForwards = forwards
         }
     }
 
-    func addManualHost(_ profile: SSHHostProfile) {
-        manualProfiles.append(profile)
+    func addHost(_ profile: SSHHostProfile) {
+        hostCatalog.append(profile)
         persistProfiles()
-        reloadHosts()
         selectedHostID = profile.id
     }
 
-    func deleteManualHost(_ host: SSHHostProfile) {
-        guard host.source == .manual else { return }
-        manualProfiles.removeAll { $0.id == host.id }
-        persistProfiles()
-        reloadHosts()
-    }
-
-    /// Removes an imported host from Consoled only. Never modifies `~/.ssh/config`.
-    func removeImportedHost(_ host: SSHHostProfile) {
-        guard host.source == .imported else { return }
-        hiddenImportedHostAliases.insert(host.hostAlias)
-        hostConnectionOverrides.removeValue(forKey: host.hostAlias)
-        portForwardOverrides.removeValue(forKey: host.hostAlias)
-        hosts.removeAll { $0.id == host.id }
+    func deleteHost(_ host: SSHHostProfile) {
+        hostCatalog.removeAll { $0.id == host.id }
         if selectedHostID == host.id {
-            selectedHostID = hosts.first?.id
+            selectedHostID = hostCatalog.first?.id
         }
         persistProfiles()
     }
@@ -304,167 +276,115 @@ final class SessionManager {
         persistProfiles()
     }
 
-    func setConfigPath(_ path: String) {
-        grantSSHConfigAccess(path: path)
-    }
-
-    func sshArgs(for profile: SSHHostProfile) -> [String] {
-        let override = profile.source == .imported ? hostConnectionOverrides[profile.hostAlias] : nil
-        let effectiveConfigPath = sshConfigImportEnabled ? configPath : nil
-        return SSHCommandBuilder.buildArgs(
-            for: profile,
-            configPath: effectiveConfigPath,
-            connectionOverride: override
-        )
-    }
-
-    private func mergeStubs(_ stubs: [SSHHostProfile]) -> [SSHHostProfile] {
-        stubs
-            .filter { !hiddenImportedHostAliases.contains($0.hostAlias) }
-            .map { stub in
-            var profile = stub
-            profile.portForwards = portForwardOverrides[stub.hostAlias] ?? []
-
-            if let override = hostConnectionOverrides[stub.hostAlias] {
-                profile = applyOverride(override, to: profile)
-            }
-
-            if let existing = hosts.first(where: { $0.hostAlias == stub.hostAlias && $0.source == .imported }),
-               existing.username != nil || !existing.configForwards.isEmpty {
-                profile.id = existing.id
-                if hostConnectionOverrides[stub.hostAlias] == nil {
-                    if existing.hostname != stub.hostAlias {
-                        profile.hostname = existing.hostname
-                    }
-                    profile.username = existing.username
-                    profile.port = existing.port
-                }
-                profile.configForwards = existing.configForwards
-            }
-
-            if profile.hostname == profile.hostAlias {
-                profile.hostname = nil
-            }
-
-            return profile
-        }
-    }
-
-    private func applyOverride(_ override: HostConnectionOverride, to profile: SSHHostProfile) -> SSHHostProfile {
-        var updated = profile
-        if let displayName = override.displayName {
-            updated.displayName = displayName
-        }
-        if let hostname = override.hostname, hostname != profile.hostAlias {
-            updated.hostname = hostname
-        }
-        if let username = override.username {
-            updated.username = username
-        }
-        if let port = override.port {
-            updated.port = port
-        }
-        if updated.source == .imported, updated.hostname == updated.hostAlias {
-            updated.hostname = nil
-        }
-        return updated
-    }
-
-    private func enrichHost(alias: String) {
-        guard sshConfigImportEnabled else { return }
-        guard !resolvedAliases.contains(alias) else { return }
-        guard hosts.contains(where: { $0.hostAlias == alias && $0.source == .imported }) else { return }
-
-        if let index = hosts.firstIndex(where: { $0.hostAlias == alias && $0.source == .imported }),
-           hosts[index].isConnectionResolved {
-            resolvedAliases.insert(alias)
+    func saveWorkspaceSnapshot(
+        layoutMode: SessionLayoutMode,
+        tileLayoutIsPortrait: Bool?
+    ) {
+        guard !sessions.isEmpty else {
+            SessionRestoreStore.clear()
             return
         }
 
-        resolvedAliases.insert(alias)
-        let path = configPath
+        let snapshot = WorkspaceSnapshot(
+            layoutMode: layoutMode,
+            tileLayoutIsPortrait: layoutMode == .tiled ? tileLayoutIsPortrait : nil,
+            sessions: sessions.map {
+                WorkspaceSessionEntry(hostAlias: $0.profile.hostAlias, themeID: $0.terminalTheme.id)
+            },
+            selectedHostAlias: selectedSession?.profile.hostAlias
+        )
+        SessionRestoreStore.save(snapshot)
+    }
 
-        Task {
-            let resolved = await Task.detached {
-                SSHConfigImporter.resolveHost(alias: alias, configPath: path)
-            }.value
+    func clearWorkspaceSnapshot() {
+        SessionRestoreStore.clear()
+    }
 
-            guard let resolved,
-                  let index = hosts.firstIndex(where: { $0.hostAlias == alias && $0.source == .imported }) else {
-                return
-            }
+    func restoreWorkspaceIfNeeded(
+        enabled: Bool,
+        workspaceSettings: SessionWorkspaceSettings
+    ) {
+        guard enabled, sessions.isEmpty else { return }
+        guard let snapshot = SessionRestoreStore.load() else { return }
 
-            hosts[index].hostname = resolved.hostname
-            hosts[index].username = resolved.username
-            hosts[index].port = resolved.port
-            hosts[index].configForwards = resolved.configForwards
-            hosts[index].portForwards = portForwardOverrides[alias] ?? hosts[index].portForwards
+        workspaceSettings.layoutMode = snapshot.layoutMode
+        if snapshot.layoutMode == .tiled, let portrait = snapshot.tileLayoutIsPortrait {
+            workspaceSettings.restoredTileIsPortrait = portrait
+        }
 
-            if let override = hostConnectionOverrides[alias] {
-                hosts[index] = applyOverride(override, to: hosts[index])
-            }
+        for entry in snapshot.sessions {
+            guard let host = hostCatalog.first(where: { $0.hostAlias == entry.hostAlias }) else { continue }
+            connect(to: host, themeID: entry.themeID)
+        }
 
-            let enriched = hosts[index]
-            for sessionIndex in sessions.indices where sessions[sessionIndex].profile.hostAlias == alias {
-                sessions[sessionIndex].profile = enriched
-            }
+        if let alias = snapshot.selectedHostAlias,
+           let session = sessions.last(where: { $0.profile.hostAlias == alias }) {
+            selectSession(session)
         }
     }
 
-    private func sanitizeConnectionOverrides() {
-        for (alias, var override) in hostConnectionOverrides {
-            if override.hostname == alias {
-                override.hostname = nil
-                hostConnectionOverrides[alias] = override
-            }
-        }
+    func sshArgs(for profile: SSHHostProfile) -> [String] {
+        SSHCommandBuilder.buildArgs(for: profile)
     }
 
-    private func loadPersistedProfiles() {
-        let data = ProfileStore.shared.load()
-        manualProfiles = data.manualProfiles
-        portForwardOverrides = data.portForwardOverrides
-        hostConnectionOverrides = data.hostConnectionOverrides
-        terminalProfileOverrides = data.terminalProfileOverrides
-        sshConfigBookmark = data.sshConfigBookmark
-        hiddenImportedHostAliases = Set(data.hiddenImportedHostAliases)
-        sanitizeConnectionOverrides()
-        sshConfigImportEnabled = data.sshConfigImportEnabled
-        if let path = data.sshConfigPath {
-            configPath = path
+    private func themeID(for host: SSHHostProfile) -> String? {
+        hostCatalog.first(where: { $0.id == host.id })?.themeID ?? host.themeID
+    }
+
+    private func resolvedTheme(for host: SSHHostProfile, explicitThemeID: String?) -> TerminalTheme {
+        if let explicitThemeID, let theme = themeRegistry.theme(id: explicitThemeID) {
+            return theme
         }
+        return savedTerminalTheme(for: host)
+    }
+
+    /// Merge a fresh import into the catalog. Match by `hostAlias`:
+    /// refresh config-derived fields, preserve user-owned fields, add new aliases.
+    private func mergeImportedHosts(_ resolved: [SSHHostProfile]) -> [SSHHostProfile] {
+        var byAlias = Dictionary(grouping: hostCatalog, by: \.hostAlias)
+            .compactMapValues { $0.first }
+
+        for incoming in resolved {
+            if var existing = byAlias[incoming.hostAlias] {
+                existing.hostname = incoming.hostname
+                existing.username = incoming.username
+                existing.port = incoming.port
+                existing.configForwards = incoming.configForwards
+                existing.identityFile = incoming.identityFile
+                byAlias[incoming.hostAlias] = existing
+            } else {
+                byAlias[incoming.hostAlias] = incoming
+            }
+        }
+
+        let resolvedAliases = Set(resolved.map(\.hostAlias))
+        var merged = resolved.compactMap { byAlias[$0.hostAlias] }
+        for existing in hostCatalog where !resolvedAliases.contains(existing.hostAlias) {
+            merged.append(byAlias[existing.hostAlias] ?? existing)
+        }
+        return merged
+    }
+
+    private func loadPersistedProfiles(from data: ProfileStoreData) {
+        hostCatalog = data.hostCatalog
     }
 
     private func persistProfiles() {
+        let themeData = themeRegistry.exportForProfileStore()
         ProfileStore.shared.save(
             ProfileStoreData(
-                manualProfiles: manualProfiles,
-                portForwardOverrides: portForwardOverrides,
-                hostConnectionOverrides: hostConnectionOverrides,
-                sshConfigImportEnabled: sshConfigImportEnabled,
-                sshConfigPath: sshConfigImportEnabled ? configPath : nil,
-                hiddenImportedHostAliases: hiddenImportedHostAliases.sorted(),
-                terminalProfileOverrides: terminalProfileOverrides,
-                sshConfigBookmark: sshConfigBookmark
+                hostCatalog: hostCatalog,
+                customThemes: themeData.custom,
+                builtInThemeOverrides: themeData.builtInOverrides
             )
         )
     }
 
-    private func resolveSSHConfigPathIfNeeded() {
-        guard configPath != SSHConfigImporter.defaultConfigPath,
-              let bookmark = sshConfigBookmark,
-              let url = SSHConfigBookmark.resolve(bookmark) else {
-            return
-        }
-        _ = url.startAccessingSecurityScopedResource()
-        configPath = url.path()
-    }
-
     private func ensureSelectionValidity() {
-        if let selectedHostID, !hosts.contains(where: { $0.id == selectedHostID }) {
-            self.selectedHostID = hosts.first?.id
+        if let selectedHostID, !hostCatalog.contains(where: { $0.id == selectedHostID }) {
+            self.selectedHostID = hostCatalog.first?.id
         } else if selectedHostID == nil {
-            selectedHostID = hosts.first?.id
+            selectedHostID = hostCatalog.first?.id
         }
 
         if let selectedSessionID, !sessions.contains(where: { $0.id == selectedSessionID }) {

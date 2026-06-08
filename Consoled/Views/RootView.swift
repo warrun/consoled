@@ -4,11 +4,13 @@ import AppKit
 
 struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
-    @State private var manager = SessionManager()
-    @State private var terminalSettings = TerminalSettings()
+    @Bindable var manager: SessionManager
+    @Bindable var terminalSettings: TerminalSettings
+    @Bindable var appSettings: AppSettings
     @State private var workspaceSettings = SessionWorkspaceSettings()
     @State private var uiPreferences = SessionUIPreferences()
     @State private var showingConfigPicker = false
+    @State private var lastKnownWindowSize: CGSize = .zero
 
     var body: some View {
         NavigationSplitView {
@@ -25,16 +27,12 @@ struct RootView: View {
                 uiPreferences: uiPreferences
             )
             .inspector(isPresented: settingsInspectorBinding) {
-                SessionSettingsPanel(
-                    manager: manager,
-                    onPickSSHConfig: { showingConfigPicker = true },
-                    onResetSSHConfig: { manager.resetSSHConfigToDefault() }
-                )
+                SessionSettingsPanel(manager: manager)
                 .inspectorColumnWidth(min: 220, ideal: 260, max: 320)
             }
         }
         .sheet(isPresented: $manager.showConfigConsentSheet) {
-            SSHConfigConsentSheet(
+            SSHConfigImportConsentSheet(
                 defaultPath: SSHConfigImporter.defaultConfigPath,
                 onImportDefault: {
                     manager.grantSSHConfigAccess(path: SSHConfigImporter.defaultConfigPath)
@@ -49,8 +47,8 @@ struct RootView: View {
             )
         }
         .sheet(isPresented: $manager.showConfigAccessSheet) {
-            ConfigAccessSheet(
-                currentPath: manager.configPath,
+            SSHConfigImportAccessSheet(
+                currentPath: manager.importAttemptPath,
                 onUseDefault: {
                     manager.grantSSHConfigAccess(path: SSHConfigImporter.defaultConfigPath)
                     manager.showConfigAccessSheet = false
@@ -68,7 +66,7 @@ struct RootView: View {
                 guard let url = urls.first else { return }
                 let accessing = url.startAccessingSecurityScopedResource()
                 let bookmark = SSHConfigBookmark.create(for: url)
-                manager.grantSSHConfigAccess(path: url.path(), bookmark: bookmark)
+                manager.grantSSHConfigAccess(path: url.path(percentEncoded: false), bookmark: bookmark)
                 if accessing {
                     url.stopAccessingSecurityScopedResource()
                 }
@@ -83,13 +81,26 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .consoledCloseSelectedSession)) { _ in
             manager.closeSelectedSession()
         }
+        .onAppear {
+            manager.applyDefaultTheme(id: terminalSettings.defaultThemeID)
+            manager.restoreWorkspaceIfNeeded(
+                enabled: appSettings.restoreWorkspaceOnLaunch,
+                workspaceSettings: workspaceSettings
+            )
+        }
+        .background(WindowSizeReader { size in
+            lastKnownWindowSize = size
+        })
         .onChange(of: scenePhase) { _, phase in
             if phase == .inactive || phase == .background {
-                manager.saveAllPreferences()
+                persistOnExit()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
-            manager.saveAllPreferences()
+            persistOnExit()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .consoledPersistOnExit)) { _ in
+            persistOnExit()
         }
         .standardWindowChrome()
     }
@@ -102,72 +113,46 @@ struct RootView: View {
         manager.selectHost(host)
         uiPreferences.showSettingsPanel()
     }
-}
 
-private struct SSHConfigConsentSheet: View {
-    let defaultPath: String
-    let onImportDefault: () -> Void
-    let onPickFile: () -> Void
-    let onDismiss: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Import SSH Config")
-                .font(.title2)
-
-            Text("Consoled can read your SSH config to list saved hosts. It will not modify the file.")
-                .foregroundStyle(.secondary)
-
-            Text(defaultPath)
-                .font(.system(.body, design: .monospaced))
-                .textSelection(.enabled)
-
-            HStack {
-                Button("Not Now", action: onDismiss)
-                Spacer()
-                Button("Choose a Different File…", action: onPickFile)
-                Button("Import from Default", action: onImportDefault)
-                    .keyboardShortcut(.defaultAction)
-            }
+    private func persistOnExit() {
+        // Host/theme edits are persisted the moment they happen, so there is no
+        // host config to flush here. Only the transient workspace layout is captured.
+        if appSettings.restoreWorkspaceOnLaunch {
+            let portrait: Bool? = workspaceSettings.layoutMode == .tiled
+                ? workspaceSettings.tileIsPortrait(for: lastKnownWindowSize)
+                : nil
+            manager.saveWorkspaceSnapshot(
+                layoutMode: workspaceSettings.layoutMode,
+                tileLayoutIsPortrait: portrait
+            )
+        } else {
+            manager.clearWorkspaceSnapshot()
         }
-        .padding(24)
-        .frame(width: 520)
     }
 }
 
-private struct ConfigAccessSheet: View {
-    let currentPath: String
-    let onUseDefault: () -> Void
-    let onPickFile: () -> Void
+private struct WindowSizeReader: NSViewRepresentable {
+    let onChange: (CGSize) -> Void
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("SSH Config Access")
-                .font(.title2)
-
-            Text("Consoled could not read your SSH config at:")
-                .foregroundStyle(.secondary)
-
-            Text(currentPath)
-                .font(.system(.body, design: .monospaced))
-                .textSelection(.enabled)
-
-            Text("Choose your ~/.ssh/config file, or retry the default location.")
-                .foregroundStyle(.secondary)
-
-            HStack {
-                Spacer()
-                Button("Choose Config File…", action: onPickFile)
-                Button("Retry Default", action: onUseDefault)
-                    .keyboardShortcut(.defaultAction)
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            if let window = view.window {
+                onChange(window.frame.size)
             }
         }
-        .padding(24)
-        .frame(width: 520)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        if let window = nsView.window {
+            onChange(window.frame.size)
+        }
     }
 }
 
 extension Notification.Name {
     static let consoledConnectSelectedHost = Notification.Name("consoledConnectSelectedHost")
     static let consoledCloseSelectedSession = Notification.Name("consoledCloseSelectedSession")
+    static let consoledPersistOnExit = Notification.Name("consoledPersistOnExit")
 }

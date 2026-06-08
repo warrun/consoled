@@ -1,19 +1,20 @@
 import SwiftUI
 
 struct TerminalProfilePicker: View {
-    @Binding var selection: TerminalProfile
+    let themes: [TerminalTheme]
+    @Binding var selectionID: String
 
     var body: some View {
-        Picker("Profile", selection: $selection) {
-            ForEach(TerminalProfile.allCases) { profile in
+        Picker("Profile", selection: $selectionID) {
+            ForEach(themes) { theme in
                 Label {
-                    Text(profile.displayName)
+                    Text(theme.displayName)
                 } icon: {
                     Circle()
-                        .fill(Color(nsColor: profile.accent))
+                        .fill(Color(nsColor: theme.accent))
                         .frame(width: 8, height: 8)
                 }
-                .tag(profile)
+                .tag(theme.id)
             }
         }
         .pickerStyle(.menu)

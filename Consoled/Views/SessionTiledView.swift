@@ -3,10 +3,11 @@ import SwiftUI
 
 struct SessionTiledChrome: View {
     @Bindable var manager: SessionManager
+    var workspaceSettings: SessionWorkspaceSettings
 
     var body: some View {
         GeometryReader { geometry in
-            let isPortrait = geometry.size.width < geometry.size.height
+            let isPortrait = workspaceSettings.tileIsPortrait(for: geometry.size)
             let slots = SessionTileLayout.slots(count: manager.sessions.count, isPortrait: isPortrait)
             let bounds = CGSize(width: geometry.size.width, height: geometry.size.height)
             let radius = SessionTileLayout.cornerRadius
@@ -19,7 +20,7 @@ struct SessionTiledChrome: View {
 
                     TileHeader(
                         title: session.title,
-                        accent: session.terminalProfile.accent,
+                        accent: session.terminalTheme.accent,
                         isSelected: isSelected,
                         onSelect: { manager.selectSession(session) },
                         onClose: { manager.closeSession(session) }
@@ -31,7 +32,7 @@ struct SessionTiledChrome: View {
                         RoundedRectangle(cornerRadius: radius)
                             .inset(by: SessionTileLayout.selectionBorderWidth / 2)
                             .stroke(
-                                isSelected ? Color(nsColor: session.terminalProfile.accent) : Color.clear,
+                                isSelected ? Color(nsColor: session.terminalTheme.accent) : Color.clear,
                                 lineWidth: SessionTileLayout.selectionBorderWidth
                             )
                     }

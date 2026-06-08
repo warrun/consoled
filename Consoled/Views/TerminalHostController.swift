@@ -10,6 +10,7 @@ final class TerminalHostController: NSViewController {
     private var currentSessions: [TerminalSession] = []
     private var selectedSessionID: UUID?
     private var onSelectSession: ((UUID) -> Void)?
+    private var tileIsPortrait: ((CGSize) -> Bool)?
 
     override func loadView() {
         stackView.wantsLayer = true
@@ -33,6 +34,7 @@ final class TerminalHostController: NSViewController {
         selectedSessionID: UUID?,
         sshPath: String,
         layoutMode: SessionLayoutMode,
+        tileIsPortrait: @escaping (CGSize) -> Bool,
         argsForProfile: (SSHHostProfile) -> [String],
         onSelectSession: @escaping (UUID) -> Void
     ) {
@@ -40,6 +42,7 @@ final class TerminalHostController: NSViewController {
         self.currentSessions = sessions
         self.selectedSessionID = selectedSessionID
         self.onSelectSession = onSelectSession
+        self.tileIsPortrait = tileIsPortrait
 
         let liveIDs = Set(sessions.map(\.id))
 
@@ -53,7 +56,7 @@ final class TerminalHostController: NSViewController {
                 executable: sshPath,
                 args: argsForProfile(session.profile),
                 hostName: session.profile.displayName,
-                profile: session.terminalProfile
+                theme: session.terminalTheme
             )
         }
 
@@ -63,8 +66,8 @@ final class TerminalHostController: NSViewController {
 
     private func updatePanelThemes(_ sessions: [TerminalSession]) {
         for session in sessions {
-            guard let panel = panels[session.id], panel.profile != session.terminalProfile else { continue }
-            panel.applyAppearance(session.terminalProfile)
+            guard let panel = panels[session.id], panel.theme != session.terminalTheme else { continue }
+            panel.applyAppearance(session.terminalTheme)
         }
     }
 
@@ -96,9 +99,9 @@ final class TerminalHostController: NSViewController {
         guard !currentSessions.isEmpty else { return }
 
         let bounds = stackView.bounds
-        let isPortrait = bounds.width < bounds.height
-        let slots = SessionTileLayout.slots(count: currentSessions.count, isPortrait: isPortrait)
         let boundsSize = CGSize(width: bounds.width, height: bounds.height)
+        let isPortrait = tileIsPortrait?(boundsSize) ?? (bounds.width < bounds.height)
+        let slots = SessionTileLayout.slots(count: currentSessions.count, isPortrait: isPortrait)
 
         for (index, session) in currentSessions.enumerated() {
             guard index < slots.count, let panel = panels[session.id] else { continue }
@@ -145,10 +148,10 @@ final class TerminalHostController: NSViewController {
         executable: String,
         args: [String],
         hostName: String,
-        profile: TerminalProfile
+        theme: TerminalTheme
     ) {
         let panel = TerminalContainerView(frame: view.bounds)
-        panel.applyAppearance(profile)
+        panel.applyAppearance(theme)
         panel.onFocus = { [weak self] in
             self?.onSelectSession?(id)
         }
@@ -180,6 +183,7 @@ struct TerminalHostRepresentable: NSViewControllerRepresentable {
     let selectedSessionID: UUID?
     let sshPath: String
     let layoutMode: SessionLayoutMode
+    let tileIsPortrait: (CGSize) -> Bool
     let argsForProfile: (SSHHostProfile) -> [String]
     let onSelectSession: (UUID) -> Void
 
@@ -193,6 +197,7 @@ struct TerminalHostRepresentable: NSViewControllerRepresentable {
             selectedSessionID: selectedSessionID,
             sshPath: sshPath,
             layoutMode: layoutMode,
+            tileIsPortrait: tileIsPortrait,
             argsForProfile: argsForProfile,
             onSelectSession: onSelectSession
         )

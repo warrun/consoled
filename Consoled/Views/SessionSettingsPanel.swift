@@ -1,9 +1,8 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SessionSettingsPanel: View {
     @Bindable var manager: SessionManager
-    var onPickSSHConfig: () -> Void
-    var onResetSSHConfig: () -> Void
 
     private var settingsHost: SSHHostProfile? {
         manager.selectedSession?.profile ?? manager.selectedHost
@@ -12,52 +11,15 @@ struct SessionSettingsPanel: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                SettingsSection(title: "SSH Config Import") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        if manager.sshConfigImportEnabled {
-                            Text(manager.configPath)
-                                .font(.system(.caption, design: .monospaced))
-                                .textSelection(.enabled)
-                                .lineLimit(3)
-                                .padding(.horizontal, 12)
-
-                            HStack {
-                                Button("Change…", action: onPickSSHConfig)
-                                Button("Reset to Default", action: onResetSSHConfig)
-                                    .disabled(manager.configPath == SSHConfigImporter.defaultConfigPath)
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.bottom, 8)
-                        } else {
-                            Text("Import hosts from your SSH config file. Consoled never modifies it.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 12)
-
-                            Button("Import from SSH Config…") {
-                                manager.requestSSHConfigImport()
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.bottom, 8)
-                        }
-
-                        if let importError = manager.importError {
-                            Text(importError)
-                                .font(.caption)
-                                .foregroundStyle(.red)
-                                .padding(.horizontal, 12)
-                                .padding(.bottom, 8)
-                        }
-                    }
-                }
-
                 if let host = settingsHost {
                     SettingsSection(title: "Terminal Theme") {
                         TerminalProfilePicker(
-                            selection: Binding(
-                                get: { manager.savedTerminalProfile(for: host) },
-                                set: { profile in
-                                    manager.setTerminalProfile(profile, forHost: host)
+                            themes: manager.themeRegistry.allThemes,
+                            selectionID: Binding(
+                                get: { manager.savedTerminalThemeID(for: host) },
+                                set: { themeID in
+                                    guard let theme = manager.themeRegistry.theme(id: themeID) else { return }
+                                    manager.setTerminalTheme(theme, forHost: host)
                                 }
                             )
                         )
@@ -65,31 +27,7 @@ struct SessionSettingsPanel: View {
                         .padding(.vertical, 8)
                     }
 
-                    SettingsSection(title: "Connection") {
-                        HostConnectionEditor(host: host) { displayName, hostname, username, port in
-                            manager.updateHostConnection(
-                                for: host,
-                                displayName: displayName,
-                                hostname: hostname,
-                                username: username,
-                                port: port
-                            )
-                        }
-
-                        if host.source == .imported {
-                            Text("Changes apply on next connect.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 12)
-                                .padding(.bottom, 8)
-                        }
-                    }
-
-                    SettingsSection(title: "Port Forwarding") {
-                        PortForwardingSection(host: host) { forwards in
-                            manager.updatePortForwards(for: host, forwards: forwards)
-                        }
-                    }
+                    HostConfigDraftPanel(host: host, manager: manager)
                 } else {
                     ContentUnavailableView(
                         "No Host Selected",
@@ -142,76 +80,75 @@ private struct SettingsField: View {
     }
 }
 
-private struct HostConnectionEditor: View {
+/// Connection + port forwarding edits held locally until the user clicks Save.
+/// Theme changes above save immediately and are not part of this draft.
+private struct HostConfigDraftPanel: View {
     let host: SSHHostProfile
-    let onSave: (String, String, String, Int) -> Void
+    @Bindable var manager: SessionManager
 
-    @State private var displayName: String
-    @State private var hostname: String
-    @State private var username: String
-    @State private var port: String
-
-    init(host: SSHHostProfile, onSave: @escaping (String, String, String, Int) -> Void) {
-        self.host = host
-        self.onSave = onSave
-        _displayName = State(initialValue: host.displayName)
-        _hostname = State(initialValue: host.connectableHostname ?? "")
-        _username = State(initialValue: host.username ?? "")
-        _port = State(initialValue: String(host.port ?? 22))
-    }
+    @State private var displayName = ""
+    @State private var hostname = ""
+    @State private var username = ""
+    @State private var port = "22"
+    @State private var identityFile = ""
+    @State private var forwards: [PortForward] = []
+    @State private var showingKeyPicker = false
 
     var body: some View {
-        Group {
+        SettingsSection(title: "Connection") {
             SettingsField(label: "Display name", text: $displayName)
             SettingsField(
                 label: "Hostname",
                 text: $hostname,
-                placeholder: host.source == .imported && !host.isConnectionResolved
-                    ? "Resolving from SSH config…"
-                    : "Hostname or IP address"
+                placeholder: "Hostname or IP address"
             )
             SettingsField(label: "Username", text: $username)
             SettingsField(label: "Port", text: $port)
+            identityFileField
         }
-        .onSubmit { commit() }
-        .onDisappear { commit() }
-        .onChange(of: displayName) { _, _ in commit() }
-        .onChange(of: hostname) { _, _ in commit() }
-        .onChange(of: username) { _, _ in commit() }
-        .onChange(of: port) { _, _ in commit() }
+
+        SettingsSection(title: "Port Forwarding") {
+            portForwardingContent
+        }
+
+        HStack {
+            Spacer()
+            Button("Save") { save() }
+                .keyboardShortcut(.defaultAction)
+                .disabled(!canSave)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .onAppear { syncFromHost() }
         .onChange(of: host.id) { _, _ in syncFromHost() }
-        .onChange(of: host.displayName) { _, _ in syncFromHost() }
-        .onChange(of: host.hostname) { _, _ in syncFromHost() }
-        .onChange(of: host.username) { _, _ in syncFromHost() }
-        .onChange(of: host.port) { _, _ in syncFromHost() }
-    }
-
-    private func syncFromHost() {
-        displayName = host.displayName
-        if let resolved = host.connectableHostname {
-            hostname = resolved
+        .fileImporter(
+            isPresented: $showingKeyPicker,
+            allowedContentTypes: [.data, .item],
+            allowsMultipleSelection: false
+        ) { result in
+            if case .success(let urls) = result, let url = urls.first {
+                identityFile = url.path(percentEncoded: false)
+            }
         }
-        username = host.username ?? ""
-        port = String(host.port ?? 22)
     }
 
-    private func commit() {
-        let trimmedName = displayName.trimmingCharacters(in: .whitespaces)
-        let trimmedHostname = hostname.trimmingCharacters(in: .whitespaces)
-        guard !trimmedName.isEmpty else { return }
-        guard !trimmedHostname.isEmpty else { return }
-        let portValue = Int(port.trimmingCharacters(in: .whitespaces)) ?? 22
-        onSave(trimmedName, trimmedHostname, username.trimmingCharacters(in: .whitespaces), portValue)
+    private var identityFileField: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Identity file (SSH key)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack {
+                TextField("Default keys", text: $identityFile)
+                    .textFieldStyle(.roundedBorder)
+                Button("Choose…") { showingKeyPicker = true }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
     }
-}
 
-private struct PortForwardingSection: View {
-    let host: SSHHostProfile
-    let onUpdate: ([PortForward]) -> Void
-
-    @State private var forwards: [PortForward] = []
-
-    var body: some View {
+    @ViewBuilder
+    private var portForwardingContent: some View {
         VStack(alignment: .leading, spacing: 8) {
             if !host.configForwards.isEmpty {
                 ForEach(host.configForwards) { forward in
@@ -234,24 +171,12 @@ private struct PortForwardingSection: View {
 
             Button {
                 forwards.append(PortForward(localPort: 8080, remoteHost: "localhost", remotePort: 80))
-                commit()
             } label: {
                 Label("Add Forward", systemImage: "plus")
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 8)
         }
-        .onAppear { syncFromHost() }
-        .onChange(of: host.id) { _, _ in syncFromHost() }
-        .onDisappear { commit() }
-    }
-
-    private func syncFromHost() {
-        forwards = host.portForwards
-    }
-
-    private func commit() {
-        onUpdate(forwards)
     }
 
     private func editableForwardRow(_ forward: Binding<PortForward>) -> some View {
@@ -265,7 +190,6 @@ private struct PortForwardingSection: View {
                 .frame(width: 60)
             Button(role: .destructive) {
                 forwards.removeAll { $0.id == forward.wrappedValue.id }
-                commit()
             } label: {
                 Image(systemName: "trash")
             }
@@ -273,6 +197,52 @@ private struct PortForwardingSection: View {
         }
         .font(.caption)
         .padding(.horizontal, 12)
-        .onSubmit { commit() }
+    }
+
+    private var canSave: Bool {
+        guard !displayName.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
+        guard !hostname.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
+        return isDirty
+    }
+
+    private var isDirty: Bool {
+        let trimmedName = displayName.trimmingCharacters(in: .whitespaces)
+        let trimmedHostname = hostname.trimmingCharacters(in: .whitespaces)
+        let trimmedUser = username.trimmingCharacters(in: .whitespaces)
+        let trimmedKey = identityFile.trimmingCharacters(in: .whitespaces)
+        let portValue = Int(port.trimmingCharacters(in: .whitespaces)) ?? 22
+
+        if trimmedName != host.displayName { return true }
+        if trimmedHostname != (host.connectableHostname ?? host.hostAlias) { return true }
+        if trimmedUser != (host.username ?? "") { return true }
+        if portValue != (host.port ?? 22) { return true }
+        if trimmedKey != (host.identityFile ?? "") { return true }
+        if forwards != host.portForwards { return true }
+        return false
+    }
+
+    private func syncFromHost() {
+        displayName = host.displayName
+        hostname = host.connectableHostname ?? host.hostAlias
+        username = host.username ?? ""
+        port = String(host.port ?? 22)
+        identityFile = host.identityFile ?? ""
+        forwards = host.portForwards
+    }
+
+    private func save() {
+        let trimmedName = displayName.trimmingCharacters(in: .whitespaces)
+        let trimmedHostname = hostname.trimmingCharacters(in: .whitespaces)
+        guard !trimmedName.isEmpty, !trimmedHostname.isEmpty else { return }
+
+        manager.updateHostConnection(
+            for: host,
+            displayName: trimmedName,
+            hostname: trimmedHostname,
+            username: username.trimmingCharacters(in: .whitespaces),
+            port: Int(port.trimmingCharacters(in: .whitespaces)) ?? 22,
+            identityFile: identityFile.trimmingCharacters(in: .whitespaces)
+        )
+        manager.updatePortForwards(for: host, forwards: forwards)
     }
 }
