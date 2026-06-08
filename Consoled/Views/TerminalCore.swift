@@ -83,6 +83,8 @@ final class TerminalContainerView: NSView {
     private var started = false
     private var pendingExecutable: String?
     private var pendingArgs: [String] = []
+    private var pendingExecName: String?
+    private var pendingCurrentDirectory: String?
     private var onProcessStarted: (() -> Void)?
     private var onFirstOutput: (() -> Void)?
     private var onExit: ((Int32?) -> Void)?
@@ -212,12 +214,16 @@ final class TerminalContainerView: NSView {
     func configure(
         executable: String,
         args: [String],
+        execName: String?,
+        currentDirectory: String?,
         onProcessStarted: @escaping () -> Void,
         onFirstOutput: @escaping () -> Void,
         onExit: @escaping (Int32?) -> Void
     ) {
         pendingExecutable = executable
         pendingArgs = args
+        pendingExecName = execName
+        pendingCurrentDirectory = currentDirectory
         self.onProcessStarted = onProcessStarted
         self.onFirstOutput = onFirstOutput
         self.onExit = onExit
@@ -225,9 +231,10 @@ final class TerminalContainerView: NSView {
         terminalView.resetOutputTracking()
         terminalView.onFirstOutput = onFirstOutput
 
+        let isSSH = execName == "ssh"
         exitHandler.onExit = { [weak self] exitCode in
             guard let self else { return }
-            if let exitCode, exitCode != 0 {
+            if isSSH, let exitCode, exitCode != 0 {
                 let message = SSHExitCodeMapper.message(for: exitCode)
                 self.terminalView.feed(text: "\r\n\r\n[\(message)]\r\n")
             }
@@ -254,9 +261,10 @@ final class TerminalContainerView: NSView {
         terminalView.startProcess(
             executable: executable,
             args: pendingArgs,
-            execName: "ssh"
+            execName: pendingExecName,
+            currentDirectory: pendingCurrentDirectory
         )
-        ConnectTiming.mark("startProcess(ssh)")
+        ConnectTiming.mark("startProcess(\(pendingExecName ?? executable))")
         onProcessStarted?()
     }
 }

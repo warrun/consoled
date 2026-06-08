@@ -32,10 +32,9 @@ final class TerminalHostController: NSViewController {
     func sync(
         sessions: [TerminalSession],
         selectedSessionID: UUID?,
-        sshPath: String,
         layoutMode: SessionLayoutMode,
         tileIsPortrait: @escaping (CGSize) -> Bool,
-        argsForProfile: (SSHHostProfile) -> [String],
+        launch: (TerminalSession) -> TerminalLaunch,
         onSelectSession: @escaping (UUID) -> Void
     ) {
         self.layoutMode = layoutMode
@@ -51,13 +50,7 @@ final class TerminalHostController: NSViewController {
         }
 
         for session in sessions where panels[session.id] == nil {
-            openSession(
-                id: session.id,
-                executable: sshPath,
-                args: argsForProfile(session.profile),
-                hostName: session.profile.displayName,
-                theme: session.terminalTheme
-            )
+            openSession(session: session, launch: launch(session))
         }
 
         updatePanelThemes(sessions)
@@ -143,23 +136,21 @@ final class TerminalHostController: NSViewController {
         NSLayoutConstraint.deactivate(constraints)
     }
 
-    private func openSession(
-        id: UUID,
-        executable: String,
-        args: [String],
-        hostName: String,
-        theme: TerminalTheme
-    ) {
+    private func openSession(session: TerminalSession, launch: TerminalLaunch) {
+        let id = session.id
+        let title = session.title
         let panel = TerminalContainerView(frame: view.bounds)
-        panel.applyAppearance(theme)
+        panel.applyAppearance(session.terminalTheme)
         panel.onFocus = { [weak self] in
             self?.onSelectSession?(id)
         }
         panel.configure(
-            executable: executable,
-            args: args,
+            executable: launch.executable,
+            args: launch.args,
+            execName: launch.execName,
+            currentDirectory: launch.currentDirectory,
             onProcessStarted: {
-                ConnectTiming.mark("session panel ready (\(hostName))")
+                ConnectTiming.mark("session panel ready (\(title))")
             },
             onFirstOutput: {},
             onExit: { _ in }
@@ -167,7 +158,7 @@ final class TerminalHostController: NSViewController {
 
         stackView.addSubview(panel)
         panels[id] = panel
-        ConnectTiming.mark("terminal panel created (\(hostName))")
+        ConnectTiming.mark("terminal panel created (\(title))")
     }
 
     private func closeSession(id: UUID) {
@@ -181,10 +172,9 @@ final class TerminalHostController: NSViewController {
 struct TerminalHostRepresentable: NSViewControllerRepresentable {
     let sessions: [TerminalSession]
     let selectedSessionID: UUID?
-    let sshPath: String
     let layoutMode: SessionLayoutMode
     let tileIsPortrait: (CGSize) -> Bool
-    let argsForProfile: (SSHHostProfile) -> [String]
+    let launch: (TerminalSession) -> TerminalLaunch
     let onSelectSession: (UUID) -> Void
 
     func makeNSViewController(context: Context) -> TerminalHostController {
@@ -195,10 +185,9 @@ struct TerminalHostRepresentable: NSViewControllerRepresentable {
         controller.sync(
             sessions: sessions,
             selectedSessionID: selectedSessionID,
-            sshPath: sshPath,
             layoutMode: layoutMode,
             tileIsPortrait: tileIsPortrait,
-            argsForProfile: argsForProfile,
+            launch: launch,
             onSelectSession: onSelectSession
         )
     }

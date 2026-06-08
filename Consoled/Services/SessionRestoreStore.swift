@@ -4,6 +4,8 @@ import os
 struct WorkspaceSessionEntry: Codable, Hashable {
     var hostAlias: String
     var themeID: String
+    /// Optional so snapshots written before local sessions existed still decode.
+    var isLocal: Bool?
 }
 
 struct WorkspaceSnapshot: Codable {

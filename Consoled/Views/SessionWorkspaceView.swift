@@ -14,11 +14,19 @@ struct SessionWorkspaceView: View {
 
             VStack(spacing: 0) {
                 if manager.sessions.isEmpty {
-                    ContentUnavailableView(
-                        "No Sessions",
-                        systemImage: "terminal",
-                        description: Text("Select a host and click Connect, or double-click a host in the sidebar.")
-                    )
+                    VStack(spacing: 16) {
+                        ContentUnavailableView(
+                            "No Sessions",
+                            systemImage: "terminal",
+                            description: Text("Select a host and click Connect, double-click a host in the sidebar, or open a local terminal.")
+                        )
+                        Button {
+                            manager.connectLocal()
+                        } label: {
+                            Label("Open Local Terminal", systemImage: "apple.terminal")
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     if workspaceSettings.layoutMode == .tabs {
@@ -41,6 +49,13 @@ struct SessionWorkspaceView: View {
         .navigationTitle(manager.selectedSession?.title ?? "Consoled")
         .toolbar {
             ToolbarItemGroup {
+                Button {
+                    manager.connectLocal()
+                } label: {
+                    Label("Local Terminal", systemImage: "apple.terminal")
+                }
+                .help("Open a local terminal session")
+
                 if !manager.sessions.isEmpty {
                     Picker("Layout", selection: $workspaceSettings.layoutMode) {
                         Label("Tabs", systemImage: "square.on.square")
@@ -73,10 +88,9 @@ struct SessionWorkspaceView: View {
         TerminalHostRepresentable(
             sessions: manager.sessions,
             selectedSessionID: manager.selectedSessionID,
-            sshPath: SSHCommandBuilder.sshPath,
             layoutMode: workspaceSettings.layoutMode,
             tileIsPortrait: { workspaceSettings.tileIsPortrait(for: $0) },
-            argsForProfile: { manager.sshArgs(for: $0) },
+            launch: { manager.launch(for: $0) },
             onSelectSession: { sessionID in
                 guard let session = manager.sessions.first(where: { $0.id == sessionID }) else { return }
                 manager.selectSession(session)

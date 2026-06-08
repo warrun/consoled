@@ -11,7 +11,9 @@ struct SessionSettingsPanel: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                if let host = settingsHost {
+                if let session = manager.selectedSession, session.isLocal {
+                    localSessionSettings(session)
+                } else if let host = settingsHost {
                     SettingsSection(title: "Terminal Theme") {
                         TerminalProfilePicker(
                             themes: manager.themeRegistry.allThemes,
@@ -40,7 +42,32 @@ struct SessionSettingsPanel: View {
             .padding(.vertical, 4)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .navigationTitle(settingsHost?.displayName ?? "Settings")
+        .navigationTitle(panelTitle)
+    }
+
+    private var panelTitle: String {
+        if let session = manager.selectedSession, session.isLocal {
+            return session.title
+        }
+        return settingsHost?.displayName ?? "Settings"
+    }
+
+    @ViewBuilder
+    private func localSessionSettings(_ session: TerminalSession) -> some View {
+        SettingsSection(title: "Terminal Theme") {
+            TerminalProfilePicker(
+                themes: manager.themeRegistry.allThemes,
+                selectionID: Binding(
+                    get: { session.terminalTheme.id },
+                    set: { themeID in
+                        guard let theme = manager.themeRegistry.theme(id: themeID) else { return }
+                        manager.setSessionTheme(theme, forSession: session.id)
+                    }
+                )
+            )
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+        }
     }
 }
 

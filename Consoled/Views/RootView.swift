@@ -78,6 +78,9 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .consoledConnectSelectedHost)) { _ in
             manager.connectSelectedHost()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .consoledOpenLocalTerminal)) { _ in
+            manager.connectLocal()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .consoledCloseSelectedSession)) { _ in
             manager.closeSelectedSession()
         }
@@ -153,6 +156,7 @@ private struct WindowSizeReader: NSViewRepresentable {
 
 extension Notification.Name {
     static let consoledConnectSelectedHost = Notification.Name("consoledConnectSelectedHost")
+    static let consoledOpenLocalTerminal = Notification.Name("consoledOpenLocalTerminal")
     static let consoledCloseSelectedSession = Notification.Name("consoledCloseSelectedSession")
     static let consoledPersistOnExit = Notification.Name("consoledPersistOnExit")
 }

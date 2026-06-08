@@ -125,7 +125,7 @@ final class SessionManager {
 
     func selectHost(_ host: SSHHostProfile) {
         selectedHostID = host.id
-        if let session = sessions.last(where: { $0.profile.id == host.id }) {
+        if let session = sessions.last(where: { $0.profile?.id == host.id }) {
             selectedSessionID = session.id
         } else {
             selectedSessionID = nil
@@ -133,7 +133,7 @@ final class SessionManager {
     }
 
     func session(for host: SSHHostProfile) -> TerminalSession? {
-        sessions.last(where: { $0.profile.id == host.id })
+        sessions.last(where: { $0.profile?.id == host.id })
     }
 
     func connect(to host: SSHHostProfile, themeID: String? = nil) {
@@ -154,11 +154,37 @@ final class SessionManager {
         connect(to: host)
     }
 
+    func connectLocal(themeID: String? = nil) {
+        ConnectTiming.markConnect()
+        let theme: TerminalTheme
+        if let themeID, let resolved = themeRegistry.theme(id: themeID) {
+            theme = resolved
+        } else {
+            theme = defaultTerminalTheme
+        }
+        let session = TerminalSession(profile: nil, terminalTheme: theme, assignedThemeID: themeID)
+        sessions.append(session)
+        selectedSessionID = session.id
+        ConnectTiming.mark("local session added to manager")
+    }
+
+    func launch(for session: TerminalSession) -> TerminalLaunch {
+        if let profile = session.profile {
+            return TerminalLaunch(
+                executable: SSHCommandBuilder.sshPath,
+                args: SSHCommandBuilder.buildArgs(for: profile),
+                execName: "ssh",
+                currentDirectory: nil
+            )
+        }
+        return LocalShell.launch()
+    }
+
     func closeSession(_ session: TerminalSession) {
         sessions.removeAll { $0.id == session.id }
         if selectedSessionID == session.id {
             selectedSessionID = sessions.last?.id
-            selectedHostID = sessions.last?.profile.id ?? selectedHostID
+            selectedHostID = sessions.last?.profile?.id ?? selectedHostID
         }
         if sessions.isEmpty {
             selectedSessionID = nil
@@ -173,7 +199,9 @@ final class SessionManager {
 
     func selectSession(_ session: TerminalSession) {
         selectedSessionID = session.id
-        selectedHostID = session.profile.id
+        if let hostID = session.profile?.id {
+            selectedHostID = hostID
+        }
     }
 
     func savedTerminalTheme(for host: SSHHostProfile) -> TerminalTheme {
@@ -191,7 +219,7 @@ final class SessionManager {
         guard let index = hostCatalog.firstIndex(where: { $0.id == host.id }) else { return }
         hostCatalog[index].themeID = theme.id
         let updated = hostCatalog[index]
-        for sessionIndex in sessions.indices where sessions[sessionIndex].profile.id == host.id {
+        for sessionIndex in sessions.indices where sessions[sessionIndex].profile?.id == host.id {
             sessions[sessionIndex].profile = updated
             sessions[sessionIndex].terminalTheme = theme
         }
@@ -206,7 +234,7 @@ final class SessionManager {
         for index in hostCatalog.indices where hostCatalog[index].themeID == themeID {
             hostCatalog[index].themeID = nil
             let updated = hostCatalog[index]
-            for sessionIndex in sessions.indices where sessions[sessionIndex].profile.id == updated.id {
+            for sessionIndex in sessions.indices where sessions[sessionIndex].profile?.id == updated.id {
                 sessions[sessionIndex].profile = updated
                 sessions[sessionIndex].terminalTheme = defaultTerminalTheme
             }
@@ -215,11 +243,22 @@ final class SessionManager {
         if changed { persistProfiles() }
     }
 
+    /// Set a theme for one specific session. Used for local sessions, which have no
+    /// host to persist a `themeID` on; the choice rides on the session itself and is
+    /// captured in the workspace snapshot.
+    func setSessionTheme(_ theme: TerminalTheme, forSession id: UUID) {
+        guard let index = sessions.firstIndex(where: { $0.id == id }) else { return }
+        sessions[index].assignedThemeID = theme.id
+        sessions[index].terminalTheme = theme
+    }
+
     func applyDefaultTheme(id: String) {
         guard let theme = themeRegistry.theme(id: id) else { return }
         defaultTerminalTheme = theme
         for index in sessions.indices {
-            guard sessions[index].profile.themeID == nil else { continue }
+            // Leave sessions that have an explicit theme (host- or session-assigned).
+            guard sessions[index].profile?.themeID == nil,
+                  sessions[index].assignedThemeID == nil else { continue }
             sessions[index].terminalTheme = theme
         }
     }
@@ -227,7 +266,9 @@ final class SessionManager {
     func refreshSessionThemesFromRegistry() {
         defaultTerminalTheme = themeRegistry.theme(id: defaultTerminalTheme.id) ?? themeRegistry.defaultTheme()
         for index in sessions.indices {
-            let themeID = sessions[index].profile.themeID ?? defaultTerminalTheme.id
+            let themeID = sessions[index].profile?.themeID
+                ?? sessions[index].assignedThemeID
+                ?? defaultTerminalTheme.id
             if let theme = themeRegistry.theme(id: themeID) {
                 sessions[index].terminalTheme = theme
             }
@@ -239,7 +280,7 @@ final class SessionManager {
 
         hostCatalog[index] = profile
 
-        for sessionIndex in sessions.indices where sessions[sessionIndex].profile.id == profile.id {
+        for sessionIndex in sessions.indices where sessions[sessionIndex].profile?.id == profile.id {
             sessions[sessionIndex].profile = profile
         }
 
@@ -274,9 +315,9 @@ final class SessionManager {
         hostCatalog[index].configForwards = []
         persistProfiles()
 
-        for sessionIndex in sessions.indices where sessions[sessionIndex].profile.id == host.id {
-            sessions[sessionIndex].profile.portForwards = forwards
-            sessions[sessionIndex].profile.configForwards = []
+        for sessionIndex in sessions.indices where sessions[sessionIndex].profile?.id == host.id {
+            sessions[sessionIndex].profile?.portForwards = forwards
+            sessions[sessionIndex].profile?.configForwards = []
         }
     }
 
@@ -311,9 +352,13 @@ final class SessionManager {
             layoutMode: layoutMode,
             tileLayoutIsPortrait: layoutMode == .tiled ? tileLayoutIsPortrait : nil,
             sessions: sessions.map {
-                WorkspaceSessionEntry(hostAlias: $0.profile.hostAlias, themeID: $0.terminalTheme.id)
+                WorkspaceSessionEntry(
+                    hostAlias: $0.profile?.hostAlias ?? "",
+                    themeID: $0.terminalTheme.id,
+                    isLocal: $0.profile == nil
+                )
             },
-            selectedHostAlias: selectedSession?.profile.hostAlias
+            selectedHostAlias: selectedSession?.profile?.hostAlias
         )
         SessionRestoreStore.save(snapshot)
     }
@@ -335,18 +380,17 @@ final class SessionManager {
         }
 
         for entry in snapshot.sessions {
-            guard let host = hostCatalog.first(where: { $0.hostAlias == entry.hostAlias }) else { continue }
-            connect(to: host, themeID: entry.themeID)
+            if entry.isLocal == true {
+                connectLocal(themeID: entry.themeID)
+            } else if let host = hostCatalog.first(where: { $0.hostAlias == entry.hostAlias }) {
+                connect(to: host, themeID: entry.themeID)
+            }
         }
 
         if let alias = snapshot.selectedHostAlias,
-           let session = sessions.last(where: { $0.profile.hostAlias == alias }) {
+           let session = sessions.last(where: { $0.profile?.hostAlias == alias }) {
             selectSession(session)
         }
-    }
-
-    func sshArgs(for profile: SSHHostProfile) -> [String] {
-        SSHCommandBuilder.buildArgs(for: profile)
     }
 
     private func themeID(for host: SSHHostProfile) -> String? {

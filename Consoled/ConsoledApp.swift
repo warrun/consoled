@@ -33,6 +33,11 @@ struct ConsoledApp: App {
                     NotificationCenter.default.post(name: .consoledConnectSelectedHost, object: nil)
                 }
                 .keyboardShortcut("t", modifiers: [.command])
+
+                Button("New Local Terminal") {
+                    NotificationCenter.default.post(name: .consoledOpenLocalTerminal, object: nil)
+                }
+                .keyboardShortcut("t", modifiers: [.command, .shift])
             }
 
             CommandGroup(after: .pasteboard) {
