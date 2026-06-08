@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 @main
@@ -30,6 +31,12 @@ struct ConsoledApp: App {
         .defaultSize(width: 1200, height: 800)
         .windowToolbarStyle(.unified(showsTitle: true))
         .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("About Consoled") {
+                    ConsoledApp.showAboutPanel()
+                }
+            }
+
             CommandGroup(replacing: .newItem) {
                 Button("New Session") {
                     NotificationCenter.default.post(name: .consoledConnectSelectedHost, object: nil)
@@ -58,5 +65,25 @@ struct ConsoledApp: App {
                 shortcutSettings: shortcutSettings
             )
         }
+    }
+
+    /// Standard macOS About panel (auto-fills app name, version, and copyright from
+    /// Info.plist) with a hyperlinked contact email added to the credits.
+    private static func showAboutPanel() {
+        let font = NSFont.systemFont(ofSize: 11)
+        let credits = NSMutableAttributedString(
+            string: "Contact: ",
+            attributes: [.font: font, .foregroundColor: NSColor.labelColor]
+        )
+        credits.append(NSAttributedString(
+            string: "development@war.run",
+            attributes: [
+                .font: font,
+                .link: URL(string: "mailto:development@war.run") as Any,
+            ]
+        ))
+
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        NSApplication.shared.orderFrontStandardAboutPanel(options: [.credits: credits])
     }
 }
