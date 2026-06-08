@@ -1,0 +1,26 @@
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# macOS
+.DS_Store
+*.swp
+*~
+
+# Distribution artifacts (rebuild with xcodebuild)
+dist/
+
+# Cursor / editor
+.cursor/
+
+# Secrets
+*.pem
+*.p12
+.env
+.env.*
