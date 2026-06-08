@@ -150,16 +150,8 @@ private struct HostConfigDraftPanel: View {
     @ViewBuilder
     private var portForwardingContent: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if !host.configForwards.isEmpty {
-                ForEach(host.configForwards) { forward in
-                    Text("-L \(forward.localPort):\(forward.remoteHost):\(forward.remotePort)")
-                        .font(.system(.caption, design: .monospaced))
-                        .padding(.horizontal, 12)
-                }
-            }
-
             if forwards.isEmpty {
-                Text("No additional local forwards.")
+                Text("No local forwards.")
                     .foregroundStyle(.secondary)
                     .font(.caption)
                     .padding(.horizontal, 12)
@@ -181,12 +173,12 @@ private struct HostConfigDraftPanel: View {
 
     private func editableForwardRow(_ forward: Binding<PortForward>) -> some View {
         HStack {
-            TextField("Local", value: forward.localPort, format: .number)
+            TextField("Local", value: forward.localPort, format: .number.grouping(.never))
                 .frame(width: 60)
             Text("→")
                 .font(.caption)
             TextField("Remote host", text: forward.remoteHost)
-            TextField("Port", value: forward.remotePort, format: .number)
+            TextField("Port", value: forward.remotePort, format: .number.grouping(.never))
                 .frame(width: 60)
             Button(role: .destructive) {
                 forwards.removeAll { $0.id == forward.wrappedValue.id }
@@ -217,7 +209,7 @@ private struct HostConfigDraftPanel: View {
         if trimmedUser != (host.username ?? "") { return true }
         if portValue != (host.port ?? 22) { return true }
         if trimmedKey != (host.identityFile ?? "") { return true }
-        if forwards != host.portForwards { return true }
+        if forwards != (host.configForwards + host.portForwards) { return true }
         return false
     }
 
@@ -227,7 +219,7 @@ private struct HostConfigDraftPanel: View {
         username = host.username ?? ""
         port = String(host.port ?? 22)
         identityFile = host.identityFile ?? ""
-        forwards = host.portForwards
+        forwards = host.configForwards + host.portForwards
     }
 
     private func save() {

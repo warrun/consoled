@@ -198,6 +198,23 @@ final class SessionManager {
         persistProfiles()
     }
 
+    /// Clear the theme assignment from every host using `themeID`, reverting them
+    /// (and their live sessions) to the current default theme. Used before deleting
+    /// a theme so no host is left pointing at a theme that no longer exists.
+    func revertHostsToDefaultTheme(themeID: String) {
+        var changed = false
+        for index in hostCatalog.indices where hostCatalog[index].themeID == themeID {
+            hostCatalog[index].themeID = nil
+            let updated = hostCatalog[index]
+            for sessionIndex in sessions.indices where sessions[sessionIndex].profile.id == updated.id {
+                sessions[sessionIndex].profile = updated
+                sessions[sessionIndex].terminalTheme = defaultTerminalTheme
+            }
+            changed = true
+        }
+        if changed { persistProfiles() }
+    }
+
     func applyDefaultTheme(id: String) {
         guard let theme = themeRegistry.theme(id: id) else { return }
         defaultTerminalTheme = theme
@@ -250,11 +267,16 @@ final class SessionManager {
 
     func updatePortForwards(for host: SSHHostProfile, forwards: [PortForward]) {
         guard let index = hostCatalog.firstIndex(where: { $0.id == host.id }) else { return }
+        // The editor presents config-imported and manually-added forwards as one
+        // unified, editable list. Persist the whole list as user-owned forwards and
+        // clear the config bucket so nothing is shown twice on the next sync.
         hostCatalog[index].portForwards = forwards
+        hostCatalog[index].configForwards = []
         persistProfiles()
 
         for sessionIndex in sessions.indices where sessions[sessionIndex].profile.id == host.id {
             sessions[sessionIndex].profile.portForwards = forwards
+            sessions[sessionIndex].profile.configForwards = []
         }
     }
 
@@ -349,7 +371,12 @@ final class SessionManager {
                 existing.hostname = incoming.hostname
                 existing.username = incoming.username
                 existing.port = incoming.port
-                existing.configForwards = incoming.configForwards
+                // Don't re-add a config forward the user has already folded into
+                // their own list — match by value, since IDs differ across imports.
+                let existingKeys = Set(existing.portForwards.map(Self.forwardValueKey))
+                existing.configForwards = incoming.configForwards.filter {
+                    !existingKeys.contains(Self.forwardValueKey($0))
+                }
                 existing.identityFile = incoming.identityFile
                 byAlias[incoming.hostAlias] = existing
             } else {
@@ -363,6 +390,10 @@ final class SessionManager {
             merged.append(byAlias[existing.hostAlias] ?? existing)
         }
         return merged
+    }
+
+    private static func forwardValueKey(_ forward: PortForward) -> String {
+        "\(forward.localPort):\(forward.remoteHost):\(forward.remotePort)"
     }
 
     private func loadPersistedProfiles(from data: ProfileStoreData) {

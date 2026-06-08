@@ -47,19 +47,17 @@ struct HostSidebarView: View {
         .navigationTitle("Consoled")
         .searchable(text: $searchText, prompt: "Filter hosts")
         .toolbar {
-            ToolbarItemGroup {
+            ToolbarItemGroup(placement: .navigation) {
                 Button {
                     showingAddHost = true
                 } label: {
                     Label("Add Host", systemImage: "plus")
                 }
 
-                Button {
-                    manager.connectSelectedHost()
-                } label: {
-                    Label("Connect", systemImage: "terminal")
+                SettingsLink {
+                    Label("Settings", systemImage: "gearshape")
                 }
-                .disabled(manager.selectedHost == nil)
+                .help("Open Consoled settings")
             }
         }
         .sheet(isPresented: $showingAddHost) {

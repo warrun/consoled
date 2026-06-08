@@ -1,78 +1,98 @@
 import SwiftUI
 
 struct ThemeListView: View {
-    @Bindable var themeRegistry: TerminalThemeRegistry
-    let defaultThemeID: String
-    let assignedThemeIDs: Set<String>
-    let onThemesChanged: () -> Void
+    @Bindable var manager: SessionManager
+    @Bindable var terminalSettings: TerminalSettings
 
-    @State private var selectedThemeID: String?
-    @State private var editorDefinition: TerminalThemeDefinition?
+    @State private var pendingDelete: TerminalThemeDefinition?
+
+    private var registry: TerminalThemeRegistry { manager.themeRegistry }
 
     var body: some View {
-        HSplitView {
-            List(selection: $selectedThemeID) {
-                ForEach(themeRegistry.allThemes) { theme in
-                    HStack(spacing: 8) {
-                        Circle()
-                            .fill(Color(nsColor: theme.accent))
-                            .frame(width: 10, height: 10)
-                        Text(theme.displayName)
-                    }
-                    .tag(theme.id as String?)
-                }
+        Form {
+            Section {
+                TerminalProfilePicker(
+                    themes: registry.allThemes,
+                    selectionID: $terminalSettings.defaultThemeID
+                )
+                Text("Used for new hosts and sessions that don't have a theme set manually.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Default Terminal Theme")
             }
-            .frame(minWidth: 180)
 
-            Group {
-                if let editorDefinition {
-                    ThemeEditorView(
-                        definition: editorDefinition,
-                        themeRegistry: themeRegistry,
-                        defaultThemeID: defaultThemeID,
-                        assignedThemeIDs: assignedThemeIDs,
-                        onUpdated: {
-                            onThemesChanged()
-                            if let selectedThemeID,
-                               themeRegistry.theme(id: selectedThemeID) == nil {
-                                self.selectedThemeID = themeRegistry.allThemes.first?.id
-                            }
-                            syncEditorSelection()
-                        }
+            Section {
+                ForEach(registry.allThemes) { theme in
+                    ThemeEditorRow(
+                        definition: theme.definition,
+                        isDeletable: !theme.isBuiltIn,
+                        onCommit: { registry.update($0) },
+                        onRequestDelete: { pendingDelete = theme.definition }
                     )
-                } else {
-                    ContentUnavailableView(
-                        "Select a Theme",
-                        systemImage: "paintpalette",
-                        description: Text("Choose a theme to edit its name and accent color.")
-                    )
+                    .id(theme.id)
                 }
-            }
-            .frame(minWidth: 240)
-        }
-        .toolbar {
-            ToolbarItem {
+
                 Button {
-                    let created = themeRegistry.createCustom()
-                    selectedThemeID = created.id
-                    editorDefinition = created
-                    onThemesChanged()
+                    _ = registry.createCustom()
                 } label: {
                     Label("Add Theme", systemImage: "plus")
                 }
+            } header: {
+                Text("Themes")
             }
         }
-        .onAppear { syncEditorSelection() }
-        .onChange(of: selectedThemeID) { _, _ in syncEditorSelection() }
-        .onChange(of: themeRegistry.allThemes.count) { _, _ in syncEditorSelection() }
+        .formStyle(.grouped)
+        .onChange(of: terminalSettings.defaultThemeID) { _, id in
+            manager.applyDefaultTheme(id: id)
+        }
+        .confirmationDialog(
+            "Delete Theme?",
+            isPresented: deleteDialogPresented,
+            titleVisibility: .visible,
+            presenting: pendingDelete
+        ) { theme in
+            Button("Delete Theme", role: .destructive) { performDelete(theme) }
+            Button("Cancel", role: .cancel) { pendingDelete = nil }
+        } message: { theme in
+            Text(deleteMessage(for: theme))
+        }
     }
 
-    private func syncEditorSelection() {
-        guard let selectedThemeID,
-              let theme = themeRegistry.theme(id: selectedThemeID) else {
-            editorDefinition = nil
-            return
+    private var deleteDialogPresented: Binding<Bool> {
+        Binding(
+            get: { pendingDelete != nil },
+            set: { if !$0 { pendingDelete = nil } }
+        )
+    }
+
+    private func hostsUsing(_ id: String) -> Int {
+        manager.hosts.filter { $0.themeID == id }.count
+    }
+
+    private func deleteMessage(for theme: TerminalThemeDefinition) -> String {
+        let count = hostsUsing(theme.id)
+        guard count > 0 else {
+            return "\"\(theme.displayName)\" will be permanently removed."
         }
-        editorDefinition = theme.definition
+        let hostWord = count == 1 ? "host" : "hosts"
+        let target = count == 1 ? "that host" : "those hosts"
+        return "\"\(theme.displayName)\" is assigned to \(count) \(hostWord). "
+            + "Deleting it will revert \(target) to the default theme."
+    }
+
+    private func performDelete(_ theme: TerminalThemeDefinition) {
+        // Revert hosts first so the theme is no longer in use, then reset the app
+        // default if it pointed here — both preconditions registry.delete enforces.
+        manager.revertHostsToDefaultTheme(themeID: theme.id)
+        if terminalSettings.defaultThemeID == theme.id {
+            terminalSettings.defaultThemeID = BuiltInTerminalThemes.defaultID
+        }
+        try? registry.delete(
+            id: theme.id,
+            defaultThemeID: terminalSettings.defaultThemeID,
+            hostThemeIDs: manager.assignedThemeIDs
+        )
+        pendingDelete = nil
     }
 }

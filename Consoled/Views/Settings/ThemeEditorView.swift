@@ -1,90 +1,58 @@
 import SwiftUI
+import AppKit
 
-struct ThemeEditorView: View {
-    @Bindable var themeRegistry: TerminalThemeRegistry
-    let defaultThemeID: String
-    let assignedThemeIDs: Set<String>
+/// One editable theme row: a live accent-color well, an editable name field, and an
+/// optional delete button (custom themes only). Each row owns local state seeded from
+/// its definition; because rows are addressed by stable identity in the list, the
+/// fields never desync the way a shared master/detail editor did.
+struct ThemeEditorRow: View {
+    let definition: TerminalThemeDefinition
+    let isDeletable: Bool
+    let onCommit: (TerminalThemeDefinition) -> Void
+    let onRequestDelete: () -> Void
 
-    @State private var definition: TerminalThemeDefinition
-    @State private var accentColor: Color
-    @State private var showDeleteConfirm = false
-    @State private var deleteError: String?
-
-    let onUpdated: () -> Void
+    @State private var name: String
+    @State private var accent: Color
 
     init(
         definition: TerminalThemeDefinition,
-        themeRegistry: TerminalThemeRegistry,
-        defaultThemeID: String,
-        assignedThemeIDs: Set<String>,
-        onUpdated: @escaping () -> Void
+        isDeletable: Bool,
+        onCommit: @escaping (TerminalThemeDefinition) -> Void,
+        onRequestDelete: @escaping () -> Void
     ) {
         self.definition = definition
-        self.themeRegistry = themeRegistry
-        self.defaultThemeID = defaultThemeID
-        self.assignedThemeIDs = assignedThemeIDs
-        self.onUpdated = onUpdated
-        _accentColor = State(initialValue: definition.accent.swiftUIColor)
+        self.isDeletable = isDeletable
+        self.onCommit = onCommit
+        self.onRequestDelete = onRequestDelete
+        _name = State(initialValue: definition.displayName)
+        _accent = State(initialValue: definition.accent.swiftUIColor)
     }
 
     var body: some View {
-        Form {
-            Section("Theme") {
-                TextField("Name", text: $definition.displayName)
-                    .onSubmit { commit() }
+        HStack(spacing: 12) {
+            ColorPicker("Accent color", selection: $accent, supportsOpacity: false)
+                .labelsHidden()
 
-                ColorPicker("Accent color", selection: $accentColor, supportsOpacity: false)
-                    .onChange(of: accentColor) { _, _ in commit() }
-            }
+            TextField("Name", text: $name)
+                .textFieldStyle(.roundedBorder)
 
-            if !definition.isBuiltIn {
-                Section {
-                    Button("Delete Theme", role: .destructive) {
-                        showDeleteConfirm = true
-                    }
-                    .disabled(!themeRegistry.canDelete(
-                        id: definition.id,
-                        defaultThemeID: defaultThemeID,
-                        hostThemeIDs: assignedThemeIDs
-                    ))
+            if isDeletable {
+                Button(role: .destructive, action: onRequestDelete) {
+                    Image(systemName: "trash")
                 }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .help("Delete theme")
             }
         }
-        .formStyle(.grouped)
-        .onChange(of: definition.displayName) { _, _ in commit() }
-        .onDisappear { commit() }
-        .alert("Delete Theme?", isPresented: $showDeleteConfirm) {
-            Button("Delete", role: .destructive) { deleteTheme() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This theme will be permanently removed.")
-        }
-        .alert("Cannot Delete Theme", isPresented: Binding(
-            get: { deleteError != nil },
-            set: { if !$0 { deleteError = nil } }
-        )) {
-            Button("OK", role: .cancel) { deleteError = nil }
-        } message: {
-            Text(deleteError ?? "")
-        }
+        .onChange(of: name) { _, _ in commit() }
+        .onChange(of: accent) { _, _ in commit() }
     }
 
     private func commit() {
-        definition.accent = CodableColor(nsColor: NSColor(accentColor))
-        themeRegistry.update(definition)
-        onUpdated()
-    }
-
-    private func deleteTheme() {
-        do {
-            try themeRegistry.delete(
-                id: definition.id,
-                defaultThemeID: defaultThemeID,
-                hostThemeIDs: assignedThemeIDs
-            )
-            onUpdated()
-        } catch {
-            deleteError = error.localizedDescription
-        }
+        var updated = definition
+        updated.displayName = name
+        updated.accent = CodableColor(nsColor: NSColor(accent))
+        onCommit(updated)
     }
 }

@@ -20,9 +20,6 @@ struct ConsoledSettingsView: View {
 
             sshTab
                 .tabItem { Label("SSH", systemImage: "lock.shield") }
-
-            workspaceTab
-                .tabItem { Label("Workspace", systemImage: "rectangle.split.2x2") }
         }
         .frame(width: 520, height: 380)
         .alert("Clear all hosts?", isPresented: $showClearHostsWarning) {
@@ -92,35 +89,23 @@ struct ConsoledSettingsView: View {
     private var generalTab: some View {
         Form {
             Section {
-                TerminalProfilePicker(
-                    themes: manager.themeRegistry.allThemes,
-                    selectionID: $terminalSettings.defaultThemeID
-                )
-                Text("Used for new hosts and sessions that don't have a theme set manually.")
+                Toggle("Restore workspace on launch", isOn: $appSettings.restoreWorkspaceOnLaunch)
+                Text("Reopens your last layout and sessions when Consoled starts.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } header: {
-                Text("Default Terminal Theme")
+                Text("Session Restore")
             }
         }
         .formStyle(.grouped)
         .padding()
-        .onChange(of: terminalSettings.defaultThemeID) { _, themeID in
-            manager.applyDefaultTheme(id: themeID)
-        }
     }
 
     private var themesTab: some View {
         ThemeListView(
-            themeRegistry: manager.themeRegistry,
-            defaultThemeID: terminalSettings.defaultThemeID,
-            assignedThemeIDs: manager.assignedThemeIDs,
-            onThemesChanged: {
-                manager.refreshSessionThemesFromRegistry()
-                manager.saveAllPreferences()
-            }
+            manager: manager,
+            terminalSettings: terminalSettings
         )
-        .padding()
     }
 
     private var sshTab: some View {
@@ -148,21 +133,6 @@ struct ConsoledSettingsView: View {
                         showClearHostsWarning = true
                     }
                 }
-            }
-        }
-        .formStyle(.grouped)
-        .padding()
-    }
-
-    private var workspaceTab: some View {
-        Form {
-            Section {
-                Toggle("Restore workspace on launch", isOn: $appSettings.restoreWorkspaceOnLaunch)
-                Text("Reopens your last layout and sessions when Consoled starts.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } header: {
-                Text("Session Restore")
             }
         }
         .formStyle(.grouped)
