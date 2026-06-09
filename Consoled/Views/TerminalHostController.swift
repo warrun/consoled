@@ -31,6 +31,19 @@ final class TerminalHostController: NSViewController {
         }
     }
 
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        // The very first panel is created before the view is in a key window, so the
+        // inline makeFirstResponder no-ops. Re-assign focus once we're on screen.
+        focusSelectedPanel()
+    }
+
+    /// Make the selected session's view first responder so the user can type immediately.
+    private func focusSelectedPanel() {
+        guard let selectedSessionID, let panel = panels[selectedSessionID] else { return }
+        view.window?.makeFirstResponder(panel.focusView)
+    }
+
     func sync(
         sessions: [TerminalSession],
         selectedSessionID: UUID?,
@@ -66,6 +79,9 @@ final class TerminalHostController: NSViewController {
 
         updatePanelThemes(sessions)
         applyLayout()
+        // Defer a focus pass so it runs after the view/window hierarchy settles — this
+        // is what lets you type into the first session without clicking it first.
+        DispatchQueue.main.async { [weak self] in self?.focusSelectedPanel() }
     }
 
     private func updatePanelThemes(_ sessions: [TerminalSession]) {
