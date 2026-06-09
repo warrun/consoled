@@ -21,7 +21,7 @@ final class TerminalPanelPlate: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func applyCornerShape(_ shape: TerminalContainerView.PanelCornerShape) {
+    func applyCornerShape(_ shape: PanelCornerShape) {
         let radius = TerminalTheme.panelCornerRadius
         let corners: CACornerMask = switch shape {
         case .all:
@@ -75,8 +75,9 @@ final class ConsoledTerminalView: LocalProcessTerminalView {
     }
 }
 
-final class TerminalContainerView: NSView {
+final class TerminalContainerView: NSView, SessionPanel {
     let terminalView = ConsoledTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+    var focusView: NSView { terminalView }
     private let frostBackdrop = NSVisualEffectView()
     private let panelPlate = TerminalPanelPlate()
     var onFocus: (() -> Void)?
@@ -140,11 +141,6 @@ final class TerminalContainerView: NSView {
         frostBackdrop.state = .active
         panelPlate.fillColor = theme.background
         applyPanelChrome()
-    }
-
-    enum PanelCornerShape {
-        case all
-        case bottomOnly
     }
 
     private var panelCornerShape: PanelCornerShape = .all

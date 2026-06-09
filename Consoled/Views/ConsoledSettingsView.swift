@@ -28,7 +28,7 @@ struct ConsoledSettingsView: View {
             Button("Reset", role: .destructive) { shortcutSettings.resetToDefaults() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Restore the default ⇧⌘ + arrow keys for reordering sessions.")
+            Text("Restore the default shortcuts: ⌥⌘ arrows to focus, ⌃⌥⌘ arrows to swap, ⌃⌥⌘ +/− for font size.")
         }
         .alert("Clear all hosts?", isPresented: $showClearHostsWarning) {
             Button("Continue", role: .destructive) { showClearHostsConfirm = true }
@@ -121,8 +121,26 @@ struct ConsoledSettingsView: View {
                     value: $appSettings.terminalOpacity,
                     range: AppSettings.minTerminalOpacity...1.0
                 )
+                opacitySlider(
+                    "Notes opacity",
+                    value: $appSettings.notesOpacity,
+                    range: AppSettings.minNotesOpacity...1.0
+                )
             } header: {
                 Text("Appearance")
+            }
+
+            Section {
+                shortcutRow(.focusLeft)
+                shortcutRow(.focusRight)
+                shortcutRow(.focusUp)
+                shortcutRow(.focusDown)
+            } header: {
+                Text("Focus Session")
+            } footer: {
+                Text("Move the active selection between sessions. Tabs: Left/Right only.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section {
@@ -130,24 +148,36 @@ struct ConsoledSettingsView: View {
                 shortcutRow(.moveRight)
                 shortcutRow(.moveUp)
                 shortcutRow(.moveDown)
+            } header: {
+                Text("Swap Session Position")
+            } footer: {
+                Text("Tabs: Left/Right shift the tab one position. Tiled: swap with the neighbouring tile.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 shortcutRow(.fontIncrease)
                 shortcutRow(.fontDecrease)
+            } header: {
+                Text("Font Size")
+            } footer: {
+                Text("Resize the focused session.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("**Tabs view:** Move Left/Right shift the selected tab one position; Up/Down are unused.")
-                    Text("**Tiled view:** all four directions swap the selected tile with its neighbour.")
-                    Text("**Font Size +/−** resize the focused tab or tile.")
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
+            Section {
+                shortcutRow(.scpSend)
+                shortcutRow(.scpGet)
+                shortcutRow(.openSFTP)
                 Button("Reset to Defaults…") {
                     showResetShortcutsConfirm = true
                 }
             } header: {
-                Text("Keyboard Shortcuts")
+                Text("Remote File Transfer")
             } footer: {
-                Text("Click a shortcut, then press the keys you want. At least one modifier (⌘ ⌥ ⌃ ⇧) is required.")
+                Text("Only active when a remote SSH session is focused. Click any shortcut, then press the keys you want — at least one modifier (⌘ ⌥ ⌃ ⇧) is required.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -160,8 +190,12 @@ struct ConsoledSettingsView: View {
         HStack {
             Text(action.label)
             Spacer()
-            ShortcutRecorderField(action: action, shortcutSettings: shortcutSettings)
-                .frame(width: 150, height: 24)
+            ShortcutRecorderField(
+                action: action,
+                currentBinding: shortcutSettings.binding(for: action),
+                shortcutSettings: shortcutSettings
+            )
+            .frame(width: 150, height: 24)
         }
     }
 

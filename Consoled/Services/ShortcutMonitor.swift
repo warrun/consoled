@@ -12,30 +12,23 @@ final class ShortcutMonitor {
         self.shortcutSettings = shortcutSettings
     }
 
-    func start(
-        sessionCount: @escaping @MainActor () -> Int,
-        handler: @escaping @MainActor (ShortcutAction) -> Void
-    ) {
+    /// `handler` performs the action and returns whether it acted; the event is consumed
+    /// (swallowed from the terminal) only when it did.
+    func start(handler: @escaping @MainActor (ShortcutAction) -> Bool) {
         guard token == nil else { return }
         let settings = shortcutSettings
         token = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             MainActor.assumeIsolated {
-                // Stand down while recording a new binding or typing in a text field.
+                // Stand down only while recording a new binding. The bound combos aren't
+                // text-editing commands, so they're safe to intercept even when a notes
+                // editor or text field has focus.
                 if settings.isRecording { return event }
-                if ShortcutMonitor.firstResponderIsTextInput() { return event }
 
                 let mods = ShortcutSettings.maskedModifiers(event.modifierFlags)
                 guard let action = settings.action(forKeyCode: event.keyCode, modifiers: mods) else {
                     return event
                 }
-                // Moves need at least two sessions; font tweaks need at least one.
-                // Don't consume the key if the action can't act.
-                let count = sessionCount()
-                if action.moveDirection != nil, count < 2 { return event }
-                if action.isFont, count < 1 { return event }
-
-                handler(action)
-                return nil
+                return handler(action) ? nil : event
             }
         }
     }
@@ -45,12 +38,5 @@ final class ShortcutMonitor {
             NSEvent.removeMonitor(token)
         }
         token = nil
-    }
-
-    /// True when an actual text field/editor has focus (not the terminal, which is a
-    /// plain NSView). Keeps the shortcut from hijacking host-editor and recorder fields.
-    private static func firstResponderIsTextInput() -> Bool {
-        guard let responder = NSApp.keyWindow?.firstResponder else { return false }
-        return responder is NSText || responder is NSTextView
     }
 }

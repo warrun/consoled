@@ -15,6 +15,8 @@ final class SessionManager {
     /// Runtime caches synced from settings at launch / on change (mirrors `defaultTerminalTheme`).
     private(set) var defaultFontSize: CGFloat = TerminalTheme.defaultFontSize
     private var terminalOpacity: CGFloat = TerminalTheme.defaultBackgroundOpacity
+    /// Live state for notes sessions, keyed by session id (shared with the editor view).
+    private(set) var notesDocuments: [UUID: NotesDocument] = [:]
 
     let themeRegistry: TerminalThemeRegistry
 
@@ -42,6 +44,15 @@ final class SessionManager {
     var selectedSession: TerminalSession? {
         guard let selectedSessionID else { return nil }
         return sessions.first { $0.id == selectedSessionID }
+    }
+
+    /// The host of the selected session if it's a live remote SSH terminal (not local,
+    /// notes, or an SFTP/SCP transfer panel). Used to gate remote-only shortcuts.
+    var selectedRemoteHost: SSHHostProfile? {
+        guard let session = selectedSession,
+              let profile = session.profile,
+              session.launchOverride == nil else { return nil }
+        return profile
     }
 
     var assignedThemeIDs: Set<String> {
@@ -182,7 +193,107 @@ final class SessionManager {
         ConnectTiming.mark("local session added to manager")
     }
 
+    func openNotes() {
+        let document = NotesDocument()
+        let theme = resolvedSessionTheme(base: defaultTerminalTheme, fontSize: defaultFontSize)
+        let session = TerminalSession(
+            profile: nil,
+            terminalTheme: theme,
+            notesDocumentID: document.id,
+            notesName: nil
+        )
+        notesDocuments[session.id] = document
+        sessions.append(session)
+        selectedSessionID = session.id
+    }
+
+    func notesDocument(for sessionID: UUID) -> NotesDocument? {
+        notesDocuments[sessionID]
+    }
+
+    /// Open a saved note file. If it's already open, just select it.
+    func openNote(fileURL: URL) {
+        if let existing = sessions.first(where: { $0.isNotes && notesDocuments[$0.id]?.fileURL == fileURL }) {
+            selectSession(existing)
+            return
+        }
+        let text = (try? String(contentsOf: fileURL, encoding: .utf8)) ?? ""
+        let name = fileURL.deletingPathExtension().lastPathComponent
+        let document = NotesDocument(text: text, name: name, fileURL: fileURL, isDirty: false)
+        let theme = resolvedSessionTheme(base: defaultTerminalTheme, fontSize: defaultFontSize)
+        let session = TerminalSession(
+            profile: nil,
+            terminalTheme: theme,
+            notesDocumentID: document.id,
+            notesName: name
+        )
+        notesDocuments[session.id] = document
+        sessions.append(session)
+        selectedSessionID = session.id
+    }
+
+    // MARK: - SFTP / SCP (run in a terminal panel via launch override)
+
+    func openSFTP(to host: SSHHostProfile) {
+        let launch = TerminalLaunch(
+            executable: SSHCommandBuilder.sftpPath,
+            args: SSHCommandBuilder.sftpArgs(for: host),
+            execName: "sftp",
+            currentDirectory: nil
+        )
+        openTransfer(to: host, launch: launch, title: "SFTP · \(host.displayName)")
+    }
+
+    func openSCPSend(to host: SSHHostProfile, localPath: String, remotePath: String) {
+        let launch = TerminalLaunch(
+            executable: SSHCommandBuilder.scpPath,
+            args: SSHCommandBuilder.scpSendArgs(for: host, localPath: localPath, remotePath: remotePath),
+            execName: "scp",
+            currentDirectory: nil
+        )
+        openTransfer(to: host, launch: launch, title: "Copy → \(host.displayName)")
+    }
+
+    func openSCPGet(to host: SSHHostProfile, remotePath: String, localPath: String) {
+        let launch = TerminalLaunch(
+            executable: SSHCommandBuilder.scpPath,
+            args: SSHCommandBuilder.scpGetArgs(for: host, remotePath: remotePath, localPath: localPath),
+            execName: "scp",
+            currentDirectory: nil
+        )
+        openTransfer(to: host, launch: launch, title: "Copy ← \(host.displayName)")
+    }
+
+    private func openTransfer(to host: SSHHostProfile, launch: TerminalLaunch, title: String) {
+        let profile = hostCatalog.first(where: { $0.id == host.id }) ?? host
+        selectedHostID = profile.id
+        let baseTheme = savedTerminalTheme(for: profile)
+        let effectiveFont = profile.fontSize ?? defaultFontSize
+        let session = TerminalSession(
+            profile: profile,
+            terminalTheme: resolvedSessionTheme(base: baseTheme, fontSize: effectiveFont),
+            launchOverride: launch,
+            customTitle: title
+        )
+        sessions.append(session)
+        selectedSessionID = session.id
+    }
+
+    var unsavedNotes: [NotesDocument] {
+        notesDocuments.values.filter(\.needsSaving)
+    }
+
+    /// Reflect a note's saved file name onto its session so the tab/tile title updates.
+    func markNotesSaved(sessionID: UUID) {
+        guard let document = notesDocuments[sessionID],
+              let index = sessions.firstIndex(where: { $0.id == sessionID }) else { return }
+        sessions[index].notesName = document.name
+    }
+
     func launch(for session: TerminalSession) -> TerminalLaunch {
+        if let override = session.launchOverride {
+            return override
+        }
         if let profile = session.profile {
             return TerminalLaunch(
                 executable: SSHCommandBuilder.sshPath,
@@ -196,6 +307,7 @@ final class SessionManager {
 
     func closeSession(_ session: TerminalSession) {
         sessions.removeAll { $0.id == session.id }
+        notesDocuments[session.id] = nil
         if selectedSessionID == session.id {
             selectedSessionID = sessions.last?.id
             selectedHostID = sessions.last?.profile?.id ?? selectedHostID
@@ -216,6 +328,39 @@ final class SessionManager {
         if let hostID = session.profile?.id {
             selectedHostID = hostID
         }
+    }
+
+    /// Move focus (selection) to the neighbouring session in a direction, without
+    /// reordering. Tabs: left/right select the previous/next tab; tiles: select the
+    /// directional neighbour.
+    func focusSession(
+        _ direction: SessionMoveDirection,
+        layoutMode: SessionLayoutMode,
+        isPortrait: Bool
+    ) {
+        guard sessions.count >= 2,
+              let id = selectedSessionID,
+              let from = sessions.firstIndex(where: { $0.id == id }) else { return }
+
+        let to: Int?
+        switch layoutMode {
+        case .tabs:
+            switch direction {
+            case .left: to = from - 1
+            case .right: to = from + 1
+            case .up, .down: to = nil
+            }
+        case .tiled:
+            to = SessionTileLayout.neighborIndex(
+                of: from,
+                count: sessions.count,
+                isPortrait: isPortrait,
+                direction: direction
+            )
+        }
+
+        guard let target = to, sessions.indices.contains(target), target != from else { return }
+        selectSession(sessions[target])
     }
 
     /// Move the selected session within the workspace. In tabs, left/right shift it one
@@ -475,12 +620,27 @@ final class SessionManager {
         let snapshot = WorkspaceSnapshot(
             layoutMode: layoutMode,
             tileLayoutIsPortrait: layoutMode == .tiled ? tileLayoutIsPortrait : nil,
-            sessions: sessions.map {
-                WorkspaceSessionEntry(
-                    hostAlias: $0.profile?.hostAlias ?? "",
-                    themeID: $0.terminalTheme.id,
-                    isLocal: $0.profile == nil,
-                    fontSize: $0.assignedFontSize
+            sessions: sessions.compactMap { session -> WorkspaceSessionEntry? in
+                // Don't persist one-shot/interactive transfer sessions (SFTP/SCP).
+                guard session.launchOverride == nil else { return nil }
+                if session.isNotes {
+                    let document = notesDocuments[session.id]
+                    return WorkspaceSessionEntry(
+                        hostAlias: "",
+                        themeID: session.terminalTheme.id,
+                        isLocal: false,
+                        fontSize: session.assignedFontSize,
+                        isNotes: true,
+                        notesText: document?.text ?? "",
+                        notesName: document?.name,
+                        notesPath: document?.fileURL?.path(percentEncoded: false)
+                    )
+                }
+                return WorkspaceSessionEntry(
+                    hostAlias: session.profile?.hostAlias ?? "",
+                    themeID: session.terminalTheme.id,
+                    isLocal: session.profile == nil,
+                    fontSize: session.assignedFontSize
                 )
             },
             selectedHostAlias: selectedSession?.profile?.hostAlias
@@ -505,7 +665,15 @@ final class SessionManager {
         }
 
         for entry in snapshot.sessions {
-            if entry.isLocal == true {
+            if entry.isNotes == true {
+                restoreNotes(
+                    text: entry.notesText ?? "",
+                    name: entry.notesName,
+                    path: entry.notesPath,
+                    themeID: entry.themeID,
+                    fontSize: entry.fontSize
+                )
+            } else if entry.isLocal == true {
                 connectLocal(themeID: entry.themeID, fontSize: entry.fontSize)
             } else if let host = hostCatalog.first(where: { $0.hostAlias == entry.hostAlias }) {
                 connect(to: host, themeID: entry.themeID, fontSize: entry.fontSize)
@@ -516,6 +684,24 @@ final class SessionManager {
            let session = sessions.last(where: { $0.profile?.hostAlias == alias }) {
             selectSession(session)
         }
+    }
+
+    private func restoreNotes(text: String, name: String?, path: String?, themeID: String?, fontSize: CGFloat?) {
+        let url = path.map { URL(fileURLWithPath: $0) }
+        let document = NotesDocument(text: text, name: name, fileURL: url, isDirty: false)
+        let baseTheme = themeID.flatMap { themeRegistry.theme(id: $0) } ?? defaultTerminalTheme
+        let effectiveFont = fontSize ?? defaultFontSize
+        let session = TerminalSession(
+            profile: nil,
+            terminalTheme: resolvedSessionTheme(base: baseTheme, fontSize: effectiveFont),
+            assignedThemeID: themeID,
+            assignedFontSize: fontSize,
+            notesDocumentID: document.id,
+            notesName: name
+        )
+        notesDocuments[session.id] = document
+        sessions.append(session)
+        selectedSessionID = session.id
     }
 
     private func themeID(for host: SSHHostProfile) -> String? {

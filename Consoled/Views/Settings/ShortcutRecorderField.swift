@@ -5,6 +5,9 @@ import SwiftUI
 /// combo, and it commits the binding. Modifier-less combos are rejected with a hint.
 struct ShortcutRecorderField: NSViewRepresentable {
     let action: ShortcutAction
+    /// Passed in (read in the parent body) so SwiftUI re-renders this row when the
+    /// binding changes elsewhere — e.g. a reassign that frees another action.
+    let currentBinding: KeyBinding
     let shortcutSettings: ShortcutSettings
 
     func makeCoordinator() -> Coordinator {
@@ -13,7 +16,7 @@ struct ShortcutRecorderField: NSViewRepresentable {
 
     func makeNSView(context: Context) -> RecorderView {
         let view = RecorderView()
-        view.binding = shortcutSettings.binding(for: action)
+        view.binding = currentBinding
         view.onCapture = { newBinding in
             context.coordinator.settings.setBinding(newBinding, for: context.coordinator.action)
         }
@@ -24,9 +27,9 @@ struct ShortcutRecorderField: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: RecorderView, context: Context) {
-        // Reflect external changes (e.g. Reset to Defaults) while not actively recording.
+        // Reflect external changes (e.g. reassign / Reset to Defaults) while idle.
         if !shortcutSettings.isRecording {
-            nsView.binding = shortcutSettings.binding(for: action)
+            nsView.binding = currentBinding
             nsView.needsDisplay = true
         }
     }
@@ -60,14 +63,17 @@ final class RecorderView: NSView {
     override var intrinsicContentSize: NSSize { NSSize(width: 130, height: 24) }
 
     override func mouseDown(with event: NSEvent) {
+        // Recording starts only on an explicit click — never from the window auto-
+        // assigning first responder when Settings opens (which previously left the
+        // global isRecording flag stuck on, killing all shortcuts).
         window?.makeFirstResponder(self)
-    }
-
-    override func becomeFirstResponder() -> Bool {
         recording = true
         needsModifierHint = false
         needsDisplay = true
-        return true
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        true
     }
 
     override func resignFirstResponder() -> Bool {
@@ -77,7 +83,20 @@ final class RecorderView: NSView {
         return true
     }
 
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        // Settings closed mid-record: make sure the global recording flag is cleared.
+        if newWindow == nil {
+            recording = false
+        }
+    }
+
     override func keyDown(with event: NSEvent) {
+        guard recording else {
+            super.keyDown(with: event)
+            return
+        }
+
         if event.keyCode == 53 { // Escape cancels recording.
             window?.makeFirstResponder(nil)
             return

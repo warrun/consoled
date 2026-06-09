@@ -1,4 +1,56 @@
+import AppKit
 import SwiftUI
+
+/// Native prompts for SCP send/get, kept out of the view body.
+@MainActor
+enum HostTransferPrompt {
+    static func send(host: SSHHostProfile, manager: SessionManager) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose"
+        panel.message = "Choose a file or folder to send to \(host.displayName)"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let remote = promptText(
+            title: "Send to \(host.displayName)",
+            message: "Remote destination path:",
+            defaultValue: "~/"
+        ) else { return }
+        manager.openSCPSend(to: host, localPath: url.path(percentEncoded: false), remotePath: remote)
+    }
+
+    static func get(host: SSHHostProfile, manager: SessionManager) {
+        guard let remote = promptText(
+            title: "Get from \(host.displayName)",
+            message: "Remote path to download:",
+            defaultValue: "~/"
+        ) else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose Destination"
+        panel.message = "Choose a local folder to download into"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        manager.openSCPGet(to: host, remotePath: remote, localPath: url.path(percentEncoded: false))
+    }
+
+    private static func promptText(title: String, message: String, defaultValue: String) -> String? {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        field.stringValue = defaultValue
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        let value = field.stringValue.trimmingCharacters(in: .whitespaces)
+        return value.isEmpty ? nil : value
+    }
+}
 
 struct HostSidebarView: View {
     @Bindable var manager: SessionManager
@@ -32,6 +84,16 @@ struct HostSidebarView: View {
                             Button("Connect") {
                                 manager.connect(to: host)
                             }
+                            Button("Open SFTP") {
+                                manager.openSFTP(to: host)
+                            }
+                            Button("Send File…") {
+                                HostTransferPrompt.send(host: host, manager: manager)
+                            }
+                            Button("Get File…") {
+                                HostTransferPrompt.get(host: host, manager: manager)
+                            }
+                            Divider()
                             Button("Settings") {
                                 onOpenHostSettings(host)
                             }

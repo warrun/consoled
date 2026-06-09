@@ -26,7 +26,8 @@ struct RootView: View {
                 manager: manager,
                 terminalSettings: terminalSettings,
                 workspaceSettings: workspaceSettings,
-                uiPreferences: uiPreferences
+                uiPreferences: uiPreferences,
+                appSettings: appSettings
             )
             .inspector(isPresented: settingsInspectorBinding) {
                 SessionSettingsPanel(manager: manager)
@@ -83,9 +84,6 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .consoledOpenLocalTerminal)) { _ in
             manager.connectLocal()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .consoledCloseSelectedSession)) { _ in
-            manager.closeSelectedSession()
-        }
         .onAppear {
             manager.applyTerminalOpacity(CGFloat(appSettings.terminalOpacity))
             manager.applyDefaultFontSize(terminalSettings.defaultFontSize)
@@ -135,23 +133,47 @@ struct RootView: View {
     private func startShortcutMonitor() {
         guard shortcutMonitor == nil else { return }
         let monitor = ShortcutMonitor(shortcutSettings: shortcutSettings)
-        monitor.start(
-            sessionCount: { manager.sessions.count },
-            handler: { action in
-                if let direction = action.moveDirection {
-                    manager.moveSelectedSession(
-                        direction,
-                        layoutMode: workspaceSettings.layoutMode,
-                        isPortrait: workspaceSettings.tileIsPortrait(for: lastKnownWindowSize)
-                    )
-                } else if action == .fontIncrease {
-                    manager.adjustSelectedSessionFontSize(by: 1)
-                } else if action == .fontDecrease {
-                    manager.adjustSelectedSessionFontSize(by: -1)
-                }
-            }
-        )
+        monitor.start(handler: { action in handleShortcut(action) })
         shortcutMonitor = monitor
+    }
+
+    /// Returns whether the shortcut acted (so the monitor knows whether to consume the key).
+    private func handleShortcut(_ action: ShortcutAction) -> Bool {
+        let isPortrait = workspaceSettings.tileIsPortrait(for: lastKnownWindowSize)
+        if let direction = action.focusDirection {
+            guard manager.sessions.count >= 2 else { return false }
+            manager.focusSession(direction, layoutMode: workspaceSettings.layoutMode, isPortrait: isPortrait)
+            return true
+        }
+        if let direction = action.moveDirection {
+            guard manager.sessions.count >= 2 else { return false }
+            manager.moveSelectedSession(direction, layoutMode: workspaceSettings.layoutMode, isPortrait: isPortrait)
+            return true
+        }
+        switch action {
+        case .fontIncrease:
+            guard manager.selectedSession != nil else { return false }
+            manager.adjustSelectedSessionFontSize(by: 1)
+            return true
+        case .fontDecrease:
+            guard manager.selectedSession != nil else { return false }
+            manager.adjustSelectedSessionFontSize(by: -1)
+            return true
+        case .scpSend:
+            guard let host = manager.selectedRemoteHost else { return false }
+            HostTransferPrompt.send(host: host, manager: manager)
+            return true
+        case .scpGet:
+            guard let host = manager.selectedRemoteHost else { return false }
+            HostTransferPrompt.get(host: host, manager: manager)
+            return true
+        case .openSFTP:
+            guard let host = manager.selectedRemoteHost else { return false }
+            manager.openSFTP(to: host)
+            return true
+        default:
+            return false
+        }
     }
 
     private func persistOnExit() {
@@ -194,6 +216,8 @@ private struct WindowSizeReader: NSViewRepresentable {
 extension Notification.Name {
     static let consoledConnectSelectedHost = Notification.Name("consoledConnectSelectedHost")
     static let consoledOpenLocalTerminal = Notification.Name("consoledOpenLocalTerminal")
+    static let consoledOpenNotes = Notification.Name("consoledOpenNotes")
+    static let consoledSaveNote = Notification.Name("consoledSaveNote")
     static let consoledCloseSelectedSession = Notification.Name("consoledCloseSelectedSession")
     static let consoledPersistOnExit = Notification.Name("consoledPersistOnExit")
 }

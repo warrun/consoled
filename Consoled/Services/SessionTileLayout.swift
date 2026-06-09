@@ -173,6 +173,31 @@ enum SessionTileLayout {
                 Slot(x: third, y: 0.5, width: third, height: 0.5),
                 Slot(x: third * 2, y: 0.5, width: third, height: 0.5),
             ]
+        case 7:
+            // Full-height left column (top-left session) + two columns of three.
+            let third = 1.0 / 3.0
+            return [
+                Slot(x: 0, y: 0, width: third, height: 1),
+                Slot(x: third, y: 0, width: third, height: third),
+                Slot(x: third, y: third, width: third, height: third),
+                Slot(x: third, y: third * 2, width: third, height: third),
+                Slot(x: third * 2, y: 0, width: third, height: third),
+                Slot(x: third * 2, y: third, width: third, height: third),
+                Slot(x: third * 2, y: third * 2, width: third, height: third),
+            ]
+        case 8:
+            // Two rows of four.
+            let quarter = 0.25
+            return (0..<8).map { index in
+                let column = index % 4
+                let row = index / 4
+                return Slot(
+                    x: CGFloat(column) * quarter,
+                    y: CGFloat(row) * 0.5,
+                    width: quarter,
+                    height: 0.5
+                )
+            }
         default:
             return fallbackSlots(count: count)
         }

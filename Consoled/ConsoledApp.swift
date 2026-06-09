@@ -17,6 +17,7 @@ struct ConsoledApp: App {
         sessionManager.themeRegistry.onChange = { sessionManager.refreshSessionThemesFromRegistry() }
         _manager = State(initialValue: sessionManager)
         _terminalSettings = State(initialValue: TerminalSettings(themeRegistry: registry))
+        AppServices.sessionManager = sessionManager
     }
 
     var body: some Scene {
@@ -47,6 +48,18 @@ struct ConsoledApp: App {
                     NotificationCenter.default.post(name: .consoledOpenLocalTerminal, object: nil)
                 }
                 .keyboardShortcut("t", modifiers: [.command, .shift])
+
+                Button("New Note") {
+                    NotificationCenter.default.post(name: .consoledOpenNotes, object: nil)
+                }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+            }
+
+            CommandGroup(replacing: .saveItem) {
+                Button("Save Note") {
+                    NotificationCenter.default.post(name: .consoledSaveNote, object: nil)
+                }
+                .keyboardShortcut("s", modifiers: [.command])
             }
 
             CommandGroup(after: .pasteboard) {

@@ -4,6 +4,8 @@ import SwiftUI
 struct SessionTiledChrome: View {
     @Bindable var manager: SessionManager
     var workspaceSettings: SessionWorkspaceSettings
+    var onClose: (TerminalSession) -> Void
+    var onSave: (TerminalSession) -> Void
 
     var body: some View {
         GeometryReader { geometry in
@@ -22,8 +24,10 @@ struct SessionTiledChrome: View {
                         title: session.title,
                         accent: session.terminalTheme.accent,
                         isSelected: isSelected,
+                        showSave: session.isNotes,
                         onSelect: { manager.selectSession(session) },
-                        onClose: { manager.closeSession(session) }
+                        onClose: { onClose(session) },
+                        onSave: { onSave(session) }
                     )
                     .frame(width: rects.header.width, height: rects.header.height)
                     .background(TileHeaderBackground())
@@ -58,8 +62,10 @@ private struct TileHeader: View {
     let title: String
     let accent: NSColor
     let isSelected: Bool
+    let showSave: Bool
     let onSelect: () -> Void
     let onClose: () -> Void
+    let onSave: () -> Void
 
     var body: some View {
         HStack(spacing: 6) {
@@ -74,6 +80,13 @@ private struct TileHeader: View {
                 .lineLimit(1)
 
             Spacer(minLength: 0)
+
+            if showSave {
+                Button("Save", action: onSave)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Save note")
+            }
 
             Button(action: onClose) {
                 Image(systemName: "xmark.circle.fill")

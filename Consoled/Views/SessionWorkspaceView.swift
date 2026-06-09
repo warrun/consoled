@@ -1,11 +1,15 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SessionWorkspaceView: View {
     @Bindable var manager: SessionManager
     @Bindable var terminalSettings: TerminalSettings
     @Bindable var workspaceSettings: SessionWorkspaceSettings
     @Bindable var uiPreferences: SessionUIPreferences
+    @Bindable var appSettings: AppSettings
+
+    @State private var pendingClose: TerminalSession?
 
     var body: some View {
         ZStack {
@@ -30,14 +34,19 @@ struct SessionWorkspaceView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     if workspaceSettings.layoutMode == .tabs {
-                        SessionTabBar(manager: manager)
+                        SessionTabBar(manager: manager, onClose: requestClose, onSave: saveNote)
                     }
 
                     ZStack(alignment: .topLeading) {
                         terminalHost
 
                         if workspaceSettings.layoutMode == .tiled {
-                            SessionTiledChrome(manager: manager, workspaceSettings: workspaceSettings)
+                            SessionTiledChrome(
+                                manager: manager,
+                                workspaceSettings: workspaceSettings,
+                                onClose: requestClose,
+                                onSave: saveNote
+                            )
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -55,6 +64,22 @@ struct SessionWorkspaceView: View {
                     Label("Local Terminal", systemImage: "apple.terminal")
                 }
                 .help("Open a local terminal session")
+
+                Menu {
+                    Button("New Note") { manager.openNotes() }
+                    Button("Open Other…") { openOtherNote() }
+                    let recents = recentNotes.prefix(10)
+                    if !recents.isEmpty {
+                        Section("Recent Notes") {
+                            ForEach(recents) { note in
+                                Button(note.name) { manager.openNote(fileURL: note.url) }
+                            }
+                        }
+                    }
+                } label: {
+                    Label("Notes", systemImage: "note.text")
+                }
+                .help("New note, or reopen a saved note")
 
                 if !manager.sessions.isEmpty {
                     Picker("Layout", selection: $workspaceSettings.layoutMode) {
@@ -82,6 +107,34 @@ struct SessionWorkspaceView: View {
         .onChange(of: terminalSettings.defaultThemeID) { _, themeID in
             manager.applyDefaultTheme(id: themeID)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .consoledOpenNotes)) { _ in
+            manager.openNotes()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .consoledSaveNote)) { _ in
+            if let session = manager.selectedSession, session.isNotes {
+                saveNote(session)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .consoledCloseSelectedSession)) { _ in
+            if let session = manager.selectedSession {
+                requestClose(session)
+            }
+        }
+        .confirmationDialog(
+            "Save changes to this note?",
+            isPresented: closeDialogPresented,
+            titleVisibility: .visible,
+            presenting: pendingClose
+        ) { session in
+            Button("Save…") { saveThenClose(session) }
+            Button("Don't Save", role: .destructive) {
+                manager.closeSession(session)
+                pendingClose = nil
+            }
+            Button("Cancel", role: .cancel) { pendingClose = nil }
+        } message: { _ in
+            Text("This note has unsaved changes.")
+        }
     }
 
     private var terminalHost: some View {
@@ -89,8 +142,10 @@ struct SessionWorkspaceView: View {
             sessions: manager.sessions,
             selectedSessionID: manager.selectedSessionID,
             layoutMode: workspaceSettings.layoutMode,
+            notesOpacity: CGFloat(appSettings.notesOpacity),
             tileIsPortrait: { workspaceSettings.tileIsPortrait(for: $0) },
             launch: { manager.launch(for: $0) },
+            notesDocument: { manager.notesDocument(for: $0) },
             onSelectSession: { sessionID in
                 guard let session = manager.sessions.first(where: { $0.id == sessionID }) else { return }
                 manager.selectSession(session)
@@ -98,10 +153,65 @@ struct SessionWorkspaceView: View {
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+
+    private var closeDialogPresented: Binding<Bool> {
+        Binding(
+            get: { pendingClose != nil },
+            set: { if !$0 { pendingClose = nil } }
+        )
+    }
+
+    /// Confirm before closing a notes session with unsaved changes; everything else closes immediately.
+    private func requestClose(_ session: TerminalSession) {
+        if session.isNotes, manager.notesDocument(for: session.id)?.needsSaving == true {
+            pendingClose = session
+        } else {
+            manager.closeSession(session)
+        }
+    }
+
+    private var recentNotes: [NotesStore.SavedNote] {
+        NotesStore.listSavedNotes()
+    }
+
+    private func openOtherNote() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = NotesStore.defaultDirectory
+        var types: [UTType] = [.plainText, .text]
+        if let md = UTType(filenameExtension: "md") { types.append(md) }
+        panel.allowedContentTypes = types
+        if panel.runModal() == .OK, let url = panel.url {
+            manager.openNote(fileURL: url)
+        }
+    }
+
+    private func saveNote(_ session: TerminalSession) {
+        guard let document = manager.notesDocument(for: session.id) else { return }
+        if NotesStore.save(document) {
+            manager.markNotesSaved(sessionID: session.id)
+        }
+    }
+
+    private func saveThenClose(_ session: TerminalSession) {
+        defer { pendingClose = nil }
+        guard let document = manager.notesDocument(for: session.id) else {
+            manager.closeSession(session)
+            return
+        }
+        // Only close if the save actually happened (user may cancel the save panel).
+        if NotesStore.save(document) {
+            manager.closeSession(session)
+        }
+    }
 }
 
 private struct SessionTabBar: View {
     @Bindable var manager: SessionManager
+    let onClose: (TerminalSession) -> Void
+    let onSave: (TerminalSession) -> Void
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -111,8 +221,10 @@ private struct SessionTabBar: View {
                         title: session.title,
                         accent: session.terminalTheme.accent,
                         isSelected: manager.selectedSessionID == session.id,
+                        showSave: session.isNotes,
                         onSelect: { manager.selectSession(session) },
-                        onClose: { manager.closeSession(session) }
+                        onClose: { onClose(session) },
+                        onSave: { onSave(session) }
                     )
                 }
             }
@@ -132,8 +244,10 @@ private struct SessionTabButton: View {
     let title: String
     let accent: NSColor
     let isSelected: Bool
+    let showSave: Bool
     let onSelect: () -> Void
     let onClose: () -> Void
+    let onSave: () -> Void
 
     var body: some View {
         HStack(spacing: 6) {
@@ -146,6 +260,13 @@ private struct SessionTabButton: View {
                 .lineLimit(1)
 
             Spacer(minLength: 0)
+
+            if showSave {
+                Button("Save", action: onSave)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Save note")
+            }
 
             Button(action: onClose) {
                 Image(systemName: "xmark.circle.fill")

@@ -8,6 +8,11 @@ struct WorkspaceSessionEntry: Codable, Hashable {
     var isLocal: Bool?
     /// Per-session font override (nil = follow host/default). Optional for back-compat.
     var fontSize: CGFloat?
+    /// Notes-session fields (all optional / back-compat).
+    var isNotes: Bool?
+    var notesText: String?
+    var notesName: String?
+    var notesPath: String?
 }
 
 struct WorkspaceSnapshot: Codable {

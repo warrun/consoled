@@ -16,8 +16,18 @@ struct KeyBinding: Codable, Hashable {
         !flags.intersection([.command, .option, .control, .shift]).isEmpty
     }
 
-    /// e.g. "⇧⌘←" — modifier glyphs in Apple's canonical ⌃⌥⇧⌘ order.
+    /// A "not bound" placeholder (used after a combo is reassigned away from an action).
+    static let unset = KeyBinding(keyCode: .max, modifiers: 0, keyLabel: "—")
+    var isUnset: Bool { self == .unset }
+
+    /// Same physical key + modifiers (ignores the display label).
+    func matches(_ other: KeyBinding) -> Bool {
+        keyCode == other.keyCode && modifiers == other.modifiers
+    }
+
+    /// e.g. "⌃⌥⌘←" — modifier glyphs in Apple's canonical ⌃⌥⇧⌘ order.
     var displayString: String {
+        if isUnset { return "Not set" }
         var result = ""
         if flags.contains(.control) { result += "⌃" }
         if flags.contains(.option) { result += "⌥" }
@@ -33,6 +43,10 @@ struct KeyBinding: Codable, Hashable {
 @MainActor
 final class ShortcutSettings {
     private static let storageKey = "sessionShortcuts"
+    private static let schemaVersionKey = "sessionShortcutsSchemaVersion"
+    /// v2 = ⇧⌘ → ⌥⌘ (free ⇧⌘+arrows for text selection).
+    /// v3 = ⌥⌘ → ⌃⌥⌘ (avoid window-manager clashes like Rectangle/Magnet).
+    private static let currentSchemaVersion = 3
 
     private var bindings: [ShortcutAction: KeyBinding]
 
@@ -50,7 +64,25 @@ final class ShortcutSettings {
                 }
             }
         }
+
+        // One-time migration: upgrade any binding still equal to a prior default
+        // (⇧⌘ or ⌥⌘) to the current ⌃⌥⌘ default. Explicit customisations are untouched.
+        let storedVersion = UserDefaults.standard.integer(forKey: Self.schemaVersionKey)
+        let migrating = storedVersion < Self.currentSchemaVersion
+        if migrating {
+            let legacySets = Self.legacyDefaultBindingSets()
+            for action in ShortcutAction.allCases
+            where legacySets.contains(where: { $0[action] == resolved[action] }) {
+                resolved[action] = defaults[action]
+            }
+        }
+
         bindings = resolved
+
+        if migrating {
+            persist()
+            UserDefaults.standard.set(Self.currentSchemaVersion, forKey: Self.schemaVersionKey)
+        }
     }
 
     func binding(for action: ShortcutAction) -> KeyBinding {
@@ -66,6 +98,12 @@ final class ShortcutSettings {
     @discardableResult
     func setBinding(_ binding: KeyBinding, for action: ShortcutAction) -> Bool {
         guard binding.hasModifier else { return false }
+        // Reassign: a combo can belong to only one action — clear it from any other.
+        for other in ShortcutAction.allCases where other != action {
+            if bindings[other]?.matches(binding) == true {
+                bindings[other] = .unset
+            }
+        }
         bindings[action] = binding
         persist()
         return true
@@ -100,8 +138,34 @@ final class ShortcutSettings {
         }
     }
 
+    /// Current shipped defaults: focus = ⌥⌘+arrows, swap & font = ⌃⌥⌘.
     private static func defaultBindings() -> [ShortcutAction: KeyBinding] {
-        let mods = maskedModifiers([.command, .shift])
+        var result = swapAndFontBindings(modifiers: [.control, .option, .command])
+        let focusMods = maskedModifiers([.command, .option])
+        result[.focusLeft] = KeyBinding(keyCode: 123, modifiers: focusMods, keyLabel: "←")
+        result[.focusRight] = KeyBinding(keyCode: 124, modifiers: focusMods, keyLabel: "→")
+        result[.focusUp] = KeyBinding(keyCode: 126, modifiers: focusMods, keyLabel: "↑")
+        result[.focusDown] = KeyBinding(keyCode: 125, modifiers: focusMods, keyLabel: "↓")
+
+        // Remote file transfer: ⌃⌥⌘ + U (upload/send) / D (download/get) / S (SFTP).
+        let transferMods = maskedModifiers([.control, .option, .command])
+        result[.scpSend] = KeyBinding(keyCode: 32, modifiers: transferMods, keyLabel: "U")
+        result[.scpGet] = KeyBinding(keyCode: 2, modifiers: transferMods, keyLabel: "D")
+        result[.openSFTP] = KeyBinding(keyCode: 1, modifiers: transferMods, keyLabel: "S")
+        return result
+    }
+
+    /// Prior shipped swap/font defaults, used only to detect untouched bindings during
+    /// migration: v1 = ⇧⌘, v2 = ⌥⌘ (focus didn't exist then, so it's excluded).
+    private static func legacyDefaultBindingSets() -> [[ShortcutAction: KeyBinding]] {
+        [
+            swapAndFontBindings(modifiers: [.command, .shift]),
+            swapAndFontBindings(modifiers: [.command, .option]),
+        ]
+    }
+
+    private static func swapAndFontBindings(modifiers flags: NSEvent.ModifierFlags) -> [ShortcutAction: KeyBinding] {
+        let mods = maskedModifiers(flags)
         return [
             .moveLeft: KeyBinding(keyCode: 123, modifiers: mods, keyLabel: "←"),
             .moveRight: KeyBinding(keyCode: 124, modifiers: mods, keyLabel: "→"),

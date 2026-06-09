@@ -11,7 +11,7 @@ struct SessionSettingsPanel: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                if let session = manager.selectedSession, session.isLocal {
+                if let session = manager.selectedSession, session.isLocal || session.isNotes {
                     localSessionSettings(session)
                 } else if let host = settingsHost {
                     SettingsSection(title: "Terminal Theme") {

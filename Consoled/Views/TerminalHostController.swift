@@ -4,13 +4,15 @@ import SwiftUI
 @MainActor
 final class TerminalHostController: NSViewController {
     private let stackView = NSView()
-    private var panels: [UUID: TerminalContainerView] = [:]
+    private var panels: [UUID: NSView & SessionPanel] = [:]
     private var panelConstraints: [UUID: [NSLayoutConstraint]] = [:]
     private var layoutMode: SessionLayoutMode = .tabs
     private var currentSessions: [TerminalSession] = []
     private var selectedSessionID: UUID?
     private var onSelectSession: ((UUID) -> Void)?
     private var tileIsPortrait: ((CGSize) -> Bool)?
+    private var notesDocumentProvider: ((UUID) -> NotesDocument?)?
+    private var notesOpacity: CGFloat = 0.85
 
     override func loadView() {
         stackView.wantsLayer = true
@@ -33,8 +35,10 @@ final class TerminalHostController: NSViewController {
         sessions: [TerminalSession],
         selectedSessionID: UUID?,
         layoutMode: SessionLayoutMode,
+        notesOpacity: CGFloat,
         tileIsPortrait: @escaping (CGSize) -> Bool,
         launch: (TerminalSession) -> TerminalLaunch,
+        notesDocument: @escaping (UUID) -> NotesDocument?,
         onSelectSession: @escaping (UUID) -> Void
     ) {
         self.layoutMode = layoutMode
@@ -42,6 +46,8 @@ final class TerminalHostController: NSViewController {
         self.selectedSessionID = selectedSessionID
         self.onSelectSession = onSelectSession
         self.tileIsPortrait = tileIsPortrait
+        self.notesDocumentProvider = notesDocument
+        self.notesOpacity = notesOpacity
 
         let liveIDs = Set(sessions.map(\.id))
 
@@ -51,6 +57,11 @@ final class TerminalHostController: NSViewController {
 
         for session in sessions where panels[session.id] == nil {
             openSession(session: session, launch: launch(session))
+        }
+
+        // Push the current notes opacity to any notes panels.
+        for session in sessions where session.isNotes {
+            (panels[session.id] as? NotesContainerView)?.setNotesOpacity(notesOpacity)
         }
 
         updatePanelThemes(sessions)
@@ -79,12 +90,12 @@ final class TerminalHostController: NSViewController {
             panel.setPanelCornerShape(.all)
             let isSelected = id == selectedSessionID
             panel.isHidden = !isSelected
-            panel.terminalView.isHidden = !isSelected
+            panel.focusView.isHidden = !isSelected
             panel.setSelected(false)
         }
 
         if let selectedSessionID, let panel = panels[selectedSessionID] {
-            view.window?.makeFirstResponder(panel.terminalView)
+            view.window?.makeFirstResponder(panel.focusView)
         }
     }
 
@@ -102,7 +113,7 @@ final class TerminalHostController: NSViewController {
             deactivatePanelConstraints(for: session.id)
             panel.translatesAutoresizingMaskIntoConstraints = true
             panel.isHidden = false
-            panel.terminalView.isHidden = false
+            panel.focusView.isHidden = false
 
             let rects = SessionTileLayout.tileRects(for: slots[index], in: boundsSize)
             panel.frame = SessionTileLayout.appKitTerminalFrame(from: rects, boundsHeight: bounds.height)
@@ -113,11 +124,11 @@ final class TerminalHostController: NSViewController {
         }
 
         if let selectedSessionID, let panel = panels[selectedSessionID] {
-            view.window?.makeFirstResponder(panel.terminalView)
+            view.window?.makeFirstResponder(panel.focusView)
         }
     }
 
-    private func activateTabConstraints(for id: UUID, panel: TerminalContainerView) {
+    private func activateTabConstraints(for id: UUID, panel: NSView & SessionPanel) {
         guard panelConstraints[id] == nil else { return }
 
         panel.translatesAutoresizingMaskIntoConstraints = false
@@ -139,6 +150,19 @@ final class TerminalHostController: NSViewController {
     private func openSession(session: TerminalSession, launch: TerminalLaunch) {
         let id = session.id
         let title = session.title
+
+        if session.isNotes, let document = notesDocumentProvider?(id) {
+            let notes = NotesContainerView(
+                document: document,
+                theme: session.terminalTheme,
+                notesOpacity: notesOpacity
+            )
+            notes.onFocus = { [weak self] in self?.onSelectSession?(id) }
+            stackView.addSubview(notes)
+            panels[id] = notes
+            return
+        }
+
         let panel = TerminalContainerView(frame: view.bounds)
         panel.applyAppearance(session.terminalTheme)
         panel.onFocus = { [weak self] in
@@ -173,8 +197,10 @@ struct TerminalHostRepresentable: NSViewControllerRepresentable {
     let sessions: [TerminalSession]
     let selectedSessionID: UUID?
     let layoutMode: SessionLayoutMode
+    let notesOpacity: CGFloat
     let tileIsPortrait: (CGSize) -> Bool
     let launch: (TerminalSession) -> TerminalLaunch
+    let notesDocument: (UUID) -> NotesDocument?
     let onSelectSession: (UUID) -> Void
 
     func makeNSViewController(context: Context) -> TerminalHostController {
@@ -186,8 +212,10 @@ struct TerminalHostRepresentable: NSViewControllerRepresentable {
             sessions: sessions,
             selectedSessionID: selectedSessionID,
             layoutMode: layoutMode,
+            notesOpacity: notesOpacity,
             tileIsPortrait: tileIsPortrait,
             launch: launch,
+            notesDocument: notesDocument,
             onSelectSession: onSelectSession
         )
     }
