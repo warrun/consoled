@@ -19,6 +19,9 @@ dist/
 # Cursor / editor
 .cursor/
 
+# Demo assets (local only — not part of the app)
+demo/
+
 # Secrets
 *.pem
 *.p12

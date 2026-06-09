@@ -73,6 +73,15 @@ final class ConsoledTerminalView: LocalProcessTerminalView {
     func resetOutputTracking() {
         receivedOutput = false
     }
+
+    /// Paste without bracketed-paste markers. With them, the shell standout-highlights
+    /// the pasted region (reverse video), which renders invisibly against our
+    /// transparent terminal background. Sending raw text echoes it in the theme colour.
+    /// (Trade-off: multi-line pastes are submitted as typed rather than held as one block.)
+    override func paste(_ sender: Any) {
+        guard let text = NSPasteboard.general.string(forType: .string) else { return }
+        insertText(text, replacementRange: NSRange(location: 0, length: 0))
+    }
 }
 
 final class TerminalContainerView: NSView, SessionPanel {

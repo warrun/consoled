@@ -22,7 +22,7 @@ struct SessionWorkspaceView: View {
                         ContentUnavailableView(
                             "No Sessions",
                             systemImage: "terminal",
-                            description: Text("Select a host and click Connect, double-click a host in the sidebar, or open a local terminal.")
+                            description: Text("Double-click a host in the sidebar (or right-click it and choose Connect) to start an SSH session. You can also open a local terminal or a note from the toolbar.")
                         )
                         Button {
                             manager.connectLocal()
