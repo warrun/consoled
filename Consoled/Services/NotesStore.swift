@@ -65,12 +65,65 @@ enum NotesStore {
         let url: URL
         if let existing = document.fileURL {
             url = existing
-        } else if let chosen = runSavePanel(suggestedName: document.name ?? defaultNoteName()) {
+        } else if let chosen = runSavePanel(suggestedName: document.name ?? "Untitled Note") {
+            // Never-saved notes seed the panel with the note's title (default "Untitled
+            // Note", or whatever the user renamed it to) — not a timestamp. The timestamp
+            // naming is reserved for the silent quit-time save of multiple notes.
             url = chosen
         } else {
             return false // user cancelled
         }
         return write(document, to: url)
+    }
+
+    /// Rename a saved note's file on disk, in its current directory, preserving the
+    /// extension. On a name collision, asks the user to overwrite / auto-number / cancel.
+    /// Returns true if the file now lives at the new name (and updates the document).
+    @discardableResult
+    static func renameSavedNote(_ document: NotesDocument, to newName: String) -> Bool {
+        guard let current = document.fileURL else { return false }
+        let dir = current.deletingLastPathComponent()
+        let ext = current.pathExtension.isEmpty ? "txt" : current.pathExtension
+        let base = sanitized(newName)
+        var target = dir.appending(path: "\(base).\(ext)")
+
+        if target == current { return false } // no effective change
+
+        let fileManager = FileManager.default
+        if fileManager.fileExists(atPath: target.path(percentEncoded: false)) {
+            switch collisionChoice(for: base) {
+            case .overwrite: try? fileManager.removeItem(at: target)
+            case .autoNumber: target = uniqueURL(base: base, ext: ext, in: dir)
+            case .cancel: return false
+            }
+        }
+
+        do {
+            try fileManager.moveItem(at: current, to: target)
+            document.fileURL = target
+            document.name = target.deletingPathExtension().lastPathComponent
+            return true
+        } catch {
+            logger.error("Failed to rename note: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+    }
+
+    private enum Collision { case overwrite, autoNumber, cancel }
+
+    private static func collisionChoice(for name: String) -> Collision {
+        let alert = NSAlert()
+        alert.messageText = "“\(name)” already exists"
+        alert.informativeText = "A note with that name already exists in this folder. "
+            + "Overwrite it, keep both (a number is added), or cancel the rename?"
+        alert.addButton(withTitle: "Overwrite")
+        alert.addButton(withTitle: "Keep Both")
+        alert.addButton(withTitle: "Cancel")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn: return .overwrite
+        case .alertSecondButtonReturn: return .autoNumber
+        default: return .cancel
+        }
     }
 
     /// For the quit prompt's "Save All": never shows a panel — names untitled notes
@@ -113,12 +166,16 @@ enum NotesStore {
     }
 
     private static func uniqueURL(for baseName: String) -> URL {
-        let dir = defaultDirectory
+        uniqueURL(base: baseName, ext: "txt", in: defaultDirectory)
+    }
+
+    /// First free `<base>.<ext>`, `<base> 2.<ext>`, … in `dir`.
+    private static func uniqueURL(base baseName: String, ext: String, in dir: URL) -> URL {
         let base = sanitized(baseName)
-        var candidate = dir.appending(path: "\(base).txt")
+        var candidate = dir.appending(path: "\(base).\(ext)")
         var counter = 2
         while FileManager.default.fileExists(atPath: candidate.path(percentEncoded: false)) {
-            candidate = dir.appending(path: "\(base) \(counter).txt")
+            candidate = dir.appending(path: "\(base) \(counter).\(ext)")
             counter += 1
         }
         return candidate

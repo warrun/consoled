@@ -308,6 +308,41 @@ final class SessionManager {
         sessions[index].notesName = document.name
     }
 
+    /// Rename a session's tab/tile title (from a double-click). Behaviour by kind:
+    /// - **SSH**: updates the host profile's display name — propagates to every open
+    ///   session for that host, the sidebar, and on-disk profiles.
+    /// - **Local / SFTP / SCP**: a visual-only override on this session (`customTitle`),
+    ///   lost when the session closes.
+    /// - **Notes**: if saved, renames the file on disk (with collision handling); if
+    ///   never saved, sets a working title that seeds the Save panel later.
+    func renameSession(_ sessionID: UUID, to newName: String) {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let index = sessions.firstIndex(where: { $0.id == sessionID }) else { return }
+        let session = sessions[index]
+
+        if session.isNotes {
+            guard let document = notesDocuments[sessionID] else { return }
+            if document.fileURL != nil {
+                if NotesStore.renameSavedNote(document, to: trimmed) {
+                    sessions[index].notesName = document.name
+                }
+            } else {
+                document.name = trimmed
+                sessions[index].notesName = trimmed
+            }
+            return
+        }
+
+        if let profile = session.profile, session.launchOverride == nil {
+            var updated = profile
+            updated.displayName = trimmed
+            updateHost(updated)
+        } else {
+            sessions[index].customTitle = trimmed
+        }
+    }
+
     func launch(for session: TerminalSession) -> TerminalLaunch {
         if let override = session.launchOverride {
             return override

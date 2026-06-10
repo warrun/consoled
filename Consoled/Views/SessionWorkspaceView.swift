@@ -242,7 +242,8 @@ private struct SessionTabBar: View {
                         showSave: session.isNotes,
                         onSelect: { manager.selectSession(session) },
                         onClose: { onClose(session) },
-                        onSave: { onSave(session) }
+                        onSave: { onSave(session) },
+                        onRename: { manager.renameSession(session.id, to: $0) }
                     )
                 }
             }
@@ -266,6 +267,7 @@ private struct SessionTabButton: View {
     let onSelect: () -> Void
     let onClose: () -> Void
     let onSave: () -> Void
+    let onRename: (String) -> Void
 
     var body: some View {
         HStack(spacing: 6) {
@@ -273,9 +275,7 @@ private struct SessionTabButton: View {
                 .fill(Color(nsColor: accent))
                 .frame(width: 8, height: 8)
 
-            Text(title)
-                .fontWeight(isSelected ? .semibold : .regular)
-                .lineLimit(1)
+            EditableTitle(title: title, isSelected: isSelected, onRename: onRename)
 
             Spacer(minLength: 0)
 
@@ -303,5 +303,56 @@ private struct SessionTabButton: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .contentShape(Rectangle())
         .onTapGesture { onSelect() }
+    }
+}
+
+/// A tab/tile title that turns into an inline text field on double-click. Commits on
+/// Return or focus loss, cancels on Esc. The rename routing (local vs SSH vs notes) lives
+/// in `SessionManager.renameSession`; this view only collects the new text.
+struct EditableTitle: View {
+    let title: String
+    let isSelected: Bool
+    var font: Font = .body
+    let onRename: (String) -> Void
+
+    @State private var isEditing = false
+    @State private var draft = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        if isEditing {
+            TextField("", text: $draft)
+                .textFieldStyle(.plain)
+                .font(font)
+                .lineLimit(1)
+                .focused($focused)
+                .onAppear { focused = true }
+                .onSubmit(commit)
+                .onExitCommand(perform: cancel)
+                .onChange(of: focused) { _, isFocused in
+                    if !isFocused { commit() }
+                }
+        } else {
+            Text(title)
+                .font(font)
+                .fontWeight(isSelected ? .semibold : .regular)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .onTapGesture(count: 2) {
+                    draft = title
+                    isEditing = true
+                }
+        }
+    }
+
+    private func commit() {
+        guard isEditing else { return }   // guard against the focus-loss + submit double-fire
+        isEditing = false
+        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty, trimmed != title { onRename(trimmed) }
+    }
+
+    private func cancel() {
+        isEditing = false
     }
 }

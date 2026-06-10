@@ -114,6 +114,11 @@ struct ConsoledApp: App {
             attributes: [.font: font, .link: URL(string: "mailto:development@war.run") as Any]
         ))
 
+        // Center the whole credits block (the panel left-aligns it by default).
+        let centered = NSMutableParagraphStyle()
+        centered.alignment = .center
+        credits.addAttribute(.paragraphStyle, value: centered, range: NSRange(location: 0, length: credits.length))
+
         NSApplication.shared.activate(ignoringOtherApps: true)
         NSApplication.shared.orderFrontStandardAboutPanel(options: [.credits: credits])
     }

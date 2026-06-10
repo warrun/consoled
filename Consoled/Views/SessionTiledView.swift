@@ -45,7 +45,8 @@ struct SessionTiledChrome: View {
                         showSave: session.isNotes,
                         onSelect: { manager.selectSession(session) },
                         onClose: { onClose(session) },
-                        onSave: { onSave(session) }
+                        onSave: { onSave(session) },
+                        onRename: { manager.renameSession(session.id, to: $0) }
                     )
                     .frame(width: rects.header.width, height: rects.header.height)
                     .background(TileHeaderBackground())
@@ -84,6 +85,7 @@ private struct TileHeader: View {
     let onSelect: () -> Void
     let onClose: () -> Void
     let onSave: () -> Void
+    let onRename: (String) -> Void
 
     var body: some View {
         HStack(spacing: 6) {
@@ -91,11 +93,7 @@ private struct TileHeader: View {
                 .fill(Color(nsColor: accent))
                 .frame(width: 8, height: 8)
 
-            Text(title)
-                .font(.caption)
-                .fontWeight(isSelected ? .semibold : .regular)
-                .foregroundStyle(.primary)
-                .lineLimit(1)
+            EditableTitle(title: title, isSelected: isSelected, font: .caption, onRename: onRename)
 
             Spacer(minLength: 0)
 
