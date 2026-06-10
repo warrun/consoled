@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <channel>
+        <title>Consoled</title>
+        <link>https://raw.githubusercontent.com/warrun/consoled/main/appcast.xml</link>
+        <description>Consoled application updates</description>
+        <language>en</language>
+        <!-- INSERT NEW RELEASES BELOW -->
+        <item>
+            <title>Consoled 1.2.0</title>
+            <sparkle:version>2</sparkle:version>
+            <sparkle:shortVersionString>1.2.0</sparkle:shortVersionString>
+            <sparkle:releaseNotesLink>https://github.com/warrun/consoled/releases/tag/v1.2.0</sparkle:releaseNotesLink>
+            <pubDate>Wed, 10 Jun 2026 06:12:35 +0000</pubDate>
+            <enclosure url="https://github.com/warrun/consoled/releases/download/v1.2.0/Consoled-1.2.0.zip" sparkle:edSignature="u2vV5E1nEf4jKrFPae0bh5D/ksrXFyHs1/yD5OdWdzUauw/7v/OP3CoWLPOVEfIrgL4POh3vQnkp/g8VSkEHBQ==" length="2286679" type="application/octet-stream"/>
+        </item>
+    </channel>
+</rss>

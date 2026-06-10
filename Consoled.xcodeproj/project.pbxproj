@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		5A91AE0000000000000000B1 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 5A91AE0000000000000000B2 /* Sparkle */; };
 		81A154A92FD1001200F0E2E2 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 81A1549E2FCFC7DD00F0E2E3 /* SwiftTerm */; };
 /* End PBXBuildFile section */
 
@@ -28,6 +29,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				81A154A92FD1001200F0E2E2 /* SwiftTerm in Frameworks */,
+				5A91AE0000000000000000B1 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -71,6 +73,7 @@
 			name = Consoled;
 			packageProductDependencies = (
 				81A1549E2FCFC7DD00F0E2E3 /* SwiftTerm */,
+				5A91AE0000000000000000B2 /* Sparkle */,
 			);
 			productName = Consoled;
 			productReference = 81A1548F2FCFC7DB00F0E2E2 /* Consoled.app */;
@@ -102,6 +105,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				81A1549D2FCFC7DD00F0E2E3 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
+				5A91AE0000000000000000B3 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 81A154902FCFC7DB00F0E2E2 /* Products */;
@@ -259,17 +263,18 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Consoled-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Consoled;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 war.run";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Warrun Lewis";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.1.2;
+				MARKETING_VERSION = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = vigilance.digital.Consoled;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -289,17 +294,18 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Consoled-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Consoled;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 war.run";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Warrun Lewis";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.1.2;
+				MARKETING_VERSION = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = vigilance.digital.Consoled;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -336,6 +342,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		5A91AE0000000000000000B3 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.6.0;
+			};
+		};
 		81A1549D2FCFC7DD00F0E2E3 /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm";
@@ -347,6 +361,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		5A91AE0000000000000000B2 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5A91AE0000000000000000B3 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
 		81A1549E2FCFC7DD00F0E2E3 /* SwiftTerm */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 81A1549D2FCFC7DD00F0E2E3 /* XCRemoteSwiftPackageReference "SwiftTerm" */;

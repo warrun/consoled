@@ -8,6 +8,7 @@ struct ConsoledApp: App {
     @State private var terminalSettings: TerminalSettings
     @State private var appSettings = AppSettings()
     @State private var shortcutSettings = ShortcutSettings()
+    @StateObject private var updaterModel = UpdaterViewModel()
 
     init() {
         TerminalPrewarm.warm()
@@ -36,6 +37,10 @@ struct ConsoledApp: App {
                 Button("About Consoled") {
                     ConsoledApp.showAboutPanel()
                 }
+            }
+
+            CommandGroup(after: .appInfo) {
+                CheckForUpdatesCommand(model: updaterModel)
             }
 
             CommandGroup(replacing: .newItem) {
@@ -80,20 +85,33 @@ struct ConsoledApp: App {
         }
     }
 
-    /// Standard macOS About panel (auto-fills app name, version, and copyright from
-    /// Info.plist) with a hyperlinked contact email added to the credits.
+    /// Standard macOS About panel. The app name, version, and copyright (incl. the
+    /// year, kept current by scripts/release.sh) come from Info.plist; the credits add
+    /// the app description, the GPL-3.0 notice, a licence link, and the contact email.
     private static func showAboutPanel() {
         let font = NSFont.systemFont(ofSize: 11)
-        let credits = NSMutableAttributedString(
-            string: "Contact: ",
+        let bold = NSFont.systemFont(ofSize: 11, weight: .semibold)
+
+        let credits = NSMutableAttributedString()
+        credits.append(NSAttributedString(
+            string: "A lightweight SSH session and terminal window manager for macOS.\n\n",
+            attributes: [.font: bold, .foregroundColor: NSColor.labelColor]
+        ))
+        credits.append(NSAttributedString(
+            string: "Consoled comes with ABSOLUTELY NO WARRANTY. This is free software, and you are welcome to redistribute it under the terms of the ",
             attributes: [.font: font, .foregroundColor: NSColor.labelColor]
-        )
+        ))
+        credits.append(NSAttributedString(
+            string: "GNU General Public License, version 3",
+            attributes: [.font: font, .link: URL(string: "https://www.gnu.org/licenses/gpl-3.0.html") as Any]
+        ))
+        credits.append(NSAttributedString(
+            string: ".\n\nContact: ",
+            attributes: [.font: font, .foregroundColor: NSColor.labelColor]
+        ))
         credits.append(NSAttributedString(
             string: "development@war.run",
-            attributes: [
-                .font: font,
-                .link: URL(string: "mailto:development@war.run") as Any,
-            ]
+            attributes: [.font: font, .link: URL(string: "mailto:development@war.run") as Any]
         ))
 
         NSApplication.shared.activate(ignoringOtherApps: true)
