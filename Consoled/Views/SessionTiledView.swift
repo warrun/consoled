@@ -49,31 +49,30 @@ struct SessionTiledChrome: View {
                         onRename: { manager.renameSession(session.id, to: $0) }
                     )
                     .frame(width: rects.header.width, height: rects.header.height)
-                    .background(TileHeaderBackground())
+                    .background(SessionHeaderBackground())
                     .clipShape(RoundedRectangle(cornerRadius: radius))
                     .overlay {
-                        RoundedRectangle(cornerRadius: radius)
-                            .inset(by: SessionTileLayout.selectionBorderWidth / 2)
-                            .stroke(
-                                isSelected ? Color(nsColor: session.terminalTheme.accent) : Color.clear,
-                                lineWidth: SessionTileLayout.selectionBorderWidth
-                            )
+                        if isSelected {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: radius)
+                                    .inset(by: SessionTileLayout.selectionBorderWidth / 2)
+                                    .stroke(
+                                        Color(nsColor: session.terminalTheme.accent),
+                                        lineWidth: SessionTileLayout.selectionBorderWidth
+                                    )
+                                // Adaptive hairline casing so the border reads even when the
+                                // accent ≈ the bar (e.g. a white accent on a light bar).
+                                RoundedRectangle(cornerRadius: radius)
+                                    .inset(by: SessionTileLayout.selectionBorderWidth)
+                                    .stroke(Color.primary.opacity(0.3), lineWidth: 0.75)
+                            }
+                        }
                     }
                     .offset(x: rects.header.minX, y: rects.header.minY)
                 }
             }
         }
         .allowsHitTesting(true)
-    }
-}
-
-/// Dark, readable tile tab bar over the frosted workspace.
-private struct TileHeaderBackground: View {
-    var body: some View {
-        ZStack {
-            Rectangle().fill(.regularMaterial)
-            Color.black.opacity(0.72)
-        }
     }
 }
 
@@ -91,6 +90,7 @@ private struct TileHeader: View {
         HStack(spacing: 6) {
             Circle()
                 .fill(Color(nsColor: accent))
+                .overlay(Circle().strokeBorder(Color.primary.opacity(0.35), lineWidth: 1))
                 .frame(width: 8, height: 8)
 
             EditableTitle(title: title, isSelected: isSelected, font: .caption, onRename: onRename)

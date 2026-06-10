@@ -250,12 +250,7 @@ private struct SessionTabBar: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
         }
-        .background {
-            ZStack {
-                Rectangle().fill(.regularMaterial)
-                Color.black.opacity(0.72)
-            }
-        }
+        .background { SessionHeaderBackground() }
     }
 }
 
@@ -273,6 +268,7 @@ private struct SessionTabButton: View {
         HStack(spacing: 6) {
             Circle()
                 .fill(Color(nsColor: accent))
+                .overlay(Circle().strokeBorder(Color.primary.opacity(0.35), lineWidth: 1))
                 .frame(width: 8, height: 8)
 
             EditableTitle(title: title, isSelected: isSelected, onRename: onRename)
@@ -354,5 +350,18 @@ struct EditableTitle: View {
 
     private func cancel() {
         isEditing = false
+    }
+}
+
+/// Frosted bar behind the tab/tile titles. Dark in Dark mode, light in Light mode, so the
+/// `.primary` title text (and the `.primary` chrome outlines) stay readable in both appearances.
+struct SessionHeaderBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        ZStack {
+            Rectangle().fill(.regularMaterial)
+            (colorScheme == .dark ? Color.black.opacity(0.72) : Color.white.opacity(0.55))
+        }
     }
 }

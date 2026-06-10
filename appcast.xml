@@ -7,6 +7,14 @@
         <language>en</language>
         <!-- INSERT NEW RELEASES BELOW -->
         <item>
+            <title>Consoled 1.2.2</title>
+            <sparkle:version>4</sparkle:version>
+            <sparkle:shortVersionString>1.2.2</sparkle:shortVersionString>
+            <sparkle:releaseNotesLink>https://github.com/warrun/consoled/releases/tag/v1.2.2</sparkle:releaseNotesLink>
+            <pubDate>Wed, 10 Jun 2026 17:13:16 +0000</pubDate>
+            <enclosure url="https://github.com/warrun/consoled/releases/download/v1.2.2/Consoled-1.2.2.zip" sparkle:edSignature="w9TraTIEt2NuiP04T8HnOf8Tq9KpkCoDhpFUyfvkwQxVDEuwNw+hbBLgR270YfqvceJdXrfchztpS54lsNEwDg==" length="2306029" type="application/octet-stream"/>
+        </item>
+        <item>
             <title>Consoled 1.2.1</title>
             <sparkle:version>3</sparkle:version>
             <sparkle:shortVersionString>1.2.1</sparkle:shortVersionString>

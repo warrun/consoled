@@ -48,19 +48,29 @@ struct ThemeEditorRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            ColorPicker("Accent color", selection: $accent, supportsOpacity: false)
-                .labelsHidden()
+            if definition.isBuiltIn {
+                // Built-in presets are fixed: show a read-only swatch + name.
+                Circle()
+                    .fill(accent)
+                    .overlay(Circle().strokeBorder(Color.primary.opacity(0.35), lineWidth: 1))
+                    .frame(width: 16, height: 16)
+                Text(name)
+                Spacer(minLength: 0)
+            } else {
+                ColorPicker("Accent color", selection: $accent, supportsOpacity: false)
+                    .labelsHidden()
 
-            TextField("Name", text: $name)
-                .textFieldStyle(.roundedBorder)
+                TextField("Name", text: $name)
+                    .textFieldStyle(.roundedBorder)
 
-            if isDeletable {
-                Button(role: .destructive, action: onRequestDelete) {
-                    Image(systemName: "trash")
+                if isDeletable {
+                    Button(role: .destructive, action: onRequestDelete) {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .help("Delete theme")
                 }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
-                .help("Delete theme")
             }
         }
         .onChange(of: name) { _, _ in commit() }
